@@ -1,0 +1,14 @@
+# private/sensitive uploaded product images
+storage/app/private/*
+!storage/app/private/.gitignore
+
+# other env variants
+.env.production
+.env.local
+
+# storage keys/certs if any
+storage/*.key
+storage/oauth-*.key
+
+# IDE
+/.idea
