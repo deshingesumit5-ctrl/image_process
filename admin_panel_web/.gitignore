@@ -1,14 +1,34 @@
+/vendor/
+node_modules/
+.env
+.env.backup
+.env.production
+.env.local
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+auth.json
+npm-debug.log
+yarn-error.log
+/.fleet
+/.idea
+/.nova
+/.vscode
+/.zed
+storage/pail
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*.php
+public/storage
+public/hot
+public/build
+
 # private/sensitive uploaded product images
 storage/app/private/*
 !storage/app/private/.gitignore
 
-# other env variants
-.env.production
-.env.local
-
 # storage keys/certs if any
 storage/*.key
 storage/oauth-*.key
-
-# IDE
-/.idea
