@@ -17,7 +17,13 @@ export default function ProcessHomeScreen({ navigation }) {
   );
 
   const pickGallery = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({ allowsMultipleSelection: true, quality: 0.9 });
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      allowsMultipleSelection: true,
+      quality: 1,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    });
     if (result.canceled) return;
     navigation.navigate('ProcessWizard', { assets: result.assets, step: 1 });
   };

@@ -16,6 +16,14 @@ class ProductController extends Controller
     public function index(Request $request)
     {
         $q = $request->string('q')->toString();
+        $categoryId = $request->input('category_id');
+        $subCategoryId = $request->input('sub_category_id');
+        $status = $request->input('status');
+        $perPage = (int) $request->input('per_page', 10);
+        if (!in_array($perPage, [10, 25, 50, 100])) {
+            $perPage = 10;
+        }
+
         $products = Product::query()
             ->with(['category', 'subCategory', 'images', 'sizes'])
             ->when($q, function ($query) use ($q) {
@@ -25,17 +33,24 @@ class ProductController extends Controller
                         ->orWhere('barcode', 'like', "%{$q}%");
                 });
             })
+            ->when($categoryId, fn ($query) => $query->where('category_id', $categoryId))
+            ->when($subCategoryId, fn ($query) => $query->where('sub_category_id', $subCategoryId))
+            ->when($status !== null && $status !== '', fn ($query) => $query->where('status', (bool)$status))
+            ->orderBy('display_order', 'asc')
             ->latest('id')
-            ->paginate(12)
+            ->paginate($perPage)
             ->withQueryString();
 
-        return view('products.index', compact('products', 'q'));
+        $categories = Category::query()->orderBy('name')->get();
+        $subCategories = SubCategory::query()->orderBy('name')->get();
+
+        return view('products.index', compact('products', 'categories', 'subCategories', 'q', 'categoryId', 'subCategoryId', 'status', 'perPage'));
     }
 
     public function create()
     {
         return view('products.form', [
-            'product' => new Product(['status' => true, 'orientation' => 'vertical']),
+            'product' => new Product(['status' => true, 'orientation' => 'vertical', 'keep_original' => false, 'display_order' => 1]),
             'categories' => Category::query()->where('status', true)->orderBy('name')->get(),
             'subCategories' => SubCategory::query()->where('status', true)->orderBy('name')->get(),
         ]);
@@ -45,7 +60,7 @@ class ProductController extends Controller
     {
         $product = $this->persist($request, new Product, $processor);
 
-        return redirect()->route('products.edit', $product)->with('success', 'Product created.');
+        return redirect()->route('products.index')->with('success', 'Product created successfully.');
     }
 
     public function edit(Product $product)
@@ -63,14 +78,14 @@ class ProductController extends Controller
     {
         $this->persist($request, $product, $processor);
 
-        return redirect()->route('products.edit', $product)->with('success', 'Product updated.');
+        return redirect()->route('products.index')->with('success', 'Product updated successfully.');
     }
 
     public function destroy(Product $product)
     {
         $product->delete();
 
-        return redirect()->route('products.index')->with('success', 'Product deleted.');
+        return redirect()->route('products.index')->with('success', 'Product deleted successfully.');
     }
 
     public function destroyImage(Product $product, ProductImage $image)
@@ -90,6 +105,7 @@ class ProductController extends Controller
             'name' => ['required', 'string', 'max:160'],
             'design_number' => ['nullable', 'string', 'max:80'],
             'barcode' => ['nullable', 'string', 'max:80'],
+            'display_order' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'boolean'],
             'keep_original' => ['nullable', 'boolean'],
             'orientation' => ['required', 'in:horizontal,vertical'],
@@ -106,6 +122,7 @@ class ProductController extends Controller
                 'name' => $data['name'],
                 'design_number' => $data['design_number'] ?? null,
                 'barcode' => $data['barcode'] ?? null,
+                'display_order' => $data['display_order'] ?? 1,
                 'status' => $request->boolean('status'),
                 'keep_original' => $request->boolean('keep_original'),
                 'orientation' => $data['orientation'],

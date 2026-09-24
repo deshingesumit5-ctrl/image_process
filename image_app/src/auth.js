@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { api, clearSession, loadToken, saveSession } from './api';
+import { api, clearSession, loadToken, restoreApiUrl, saveSession } from './api';
 
 const AuthContext = createContext(null);
 
@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     (async () => {
+      await restoreApiUrl();
       const stored = await loadToken();
       if (stored) {
         try {

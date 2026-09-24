@@ -10,7 +10,7 @@ class Product extends Model
 {
     protected $fillable = [
         'category_id', 'sub_category_id', 'name', 'design_number', 'barcode',
-        'status', 'keep_original', 'orientation',
+        'display_order', 'status', 'keep_original', 'orientation',
     ];
 
     protected function casts(): array
@@ -18,6 +18,7 @@ class Product extends Model
         return [
             'status' => 'boolean',
             'keep_original' => 'boolean',
+            'display_order' => 'integer',
         ];
     }
 

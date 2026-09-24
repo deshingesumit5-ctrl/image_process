@@ -20,13 +20,23 @@
       "usesCleartextTraffic": true,
       "permissions": [
         "CAMERA",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
       ]
     },
     "plugins": [
       "expo-image-picker",
       "expo-sharing",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow saving processed images to your gallery.",
+          "savePhotosPermission": "Allow saving processed images to your gallery.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "http://127.0.0.1:8000/api"

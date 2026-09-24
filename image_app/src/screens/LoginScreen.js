@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
-import { API_URL, PRIMARY } from '../config';
+import { PRIMARY } from '../config';
 import { useAuth } from '../auth';
 
 export default function LoginScreen() {
@@ -34,7 +34,6 @@ export default function LoginScreen() {
       <Pressable onPress={onSubmit} disabled={busy} style={{ backgroundColor: PRIMARY, borderRadius: 12, padding: 14, alignItems: 'center' }}>
         <Text style={{ color: 'white', fontWeight: '600' }}>{busy ? 'Signing in…' : 'Login'}</Text>
       </Pressable>
-      <Text style={{ marginTop: 16, fontSize: 12, color: '#94a3b8' }}>API {API_URL}</Text>
     </View>
   );
 }

@@ -25,15 +25,19 @@ Route::middleware('auth')->group(function () {
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::middleware('module:category')->group(function () {
+        Route::get('/category', fn () => redirect()->route('categories.index'));
         Route::resource('categories', CategoryController::class)->except('show');
         Route::post('categories/{category}/toggle', [CategoryController::class, 'toggle'])->name('categories.toggle');
     });
 
     Route::middleware('module:sub_category')->group(function () {
+        Route::get('/sub-category', fn () => redirect()->route('sub-categories.index'));
         Route::resource('sub-categories', SubCategoryController::class)->except('show');
+        Route::post('sub-categories/{sub_category}/toggle', [SubCategoryController::class, 'toggle'])->name('sub-categories.toggle');
     });
 
     Route::middleware('module:product')->group(function () {
+        Route::get('/product', fn () => redirect()->route('products.index'));
         Route::resource('products', ProductController::class)->except('show');
         Route::delete('products/{product}/images/{image}', [ProductController::class, 'destroyImage'])->name('products.images.destroy');
         Route::get('products/{product}/process', [AdminProcessController::class, 'create'])->name('products.process');

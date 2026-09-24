@@ -10,11 +10,31 @@ class SubCategory extends Model
 {
     public const UPDATED_AT = null;
 
-    protected $fillable = ['category_id', 'name', 'status'];
+    protected $fillable = ['category_id', 'name', 'image_path', 'display_order', 'status'];
 
     protected function casts(): array
     {
-        return ['status' => 'boolean'];
+        return [
+            'status' => 'boolean',
+            'display_order' => 'integer',
+        ];
+    }
+
+    public function getSlugAttribute(): string
+    {
+        return \Illuminate\Support\Str::slug($this->name);
+    }
+
+    public function getThumbnailUrlAttribute(): ?string
+    {
+        if ($this->image_path) {
+            return asset('storage/' . $this->image_path);
+        }
+        $firstProductImg = $this->products()->with('images')->get()->pluck('images')->flatten()->first();
+        if ($firstProductImg) {
+            return asset('storage/' . $firstProductImg->displayPath());
+        }
+        return null;
     }
 
     public function category(): BelongsTo

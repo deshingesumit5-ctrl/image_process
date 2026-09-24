@@ -1,7 +1,58 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_URL } from './config';
+import { API_URL, getCandidateApiUrls } from './config';
 
-async function request(path, { method = 'GET', token, body, isMultipart } = {}) {
+const API_URL_KEY = 'api_url';
+const TIMEOUT_MS = 3000;
+let activeApiUrl = API_URL;
+
+export async function restoreApiUrl() {
+  try {
+    const saved = await AsyncStorage.getItem(API_URL_KEY);
+    if (saved) {
+      activeApiUrl = saved;
+    }
+  } catch (e) {}
+}
+
+function rememberApiUrl(url) {
+  activeApiUrl = url;
+  AsyncStorage.setItem(API_URL_KEY, url).catch(() => {});
+}
+
+export function rewriteMediaUrl(url) {
+  if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+    return url;
+  }
+  try {
+    const parsed = new URL(url);
+    if (!['127.0.0.1', 'localhost', '10.0.2.2'].includes(parsed.hostname)) {
+      return url;
+    }
+    const apiBase = activeApiUrl.replace(/\/api\/?$/, '');
+    const api = new URL(apiBase);
+    parsed.protocol = api.protocol;
+    parsed.hostname = api.hostname;
+    parsed.port = api.port;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function rewriteMediaDeep(value) {
+  if (typeof value === 'string') {
+    return rewriteMediaUrl(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(rewriteMediaDeep);
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, rewriteMediaDeep(nested)]));
+  }
+  return value;
+}
+
+async function requestOnce(baseUrl, path, { method = 'GET', token, body, isMultipart, timeout = TIMEOUT_MS } = {}) {
   const headers = { Accept: 'application/json' };
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -10,22 +61,49 @@ async function request(path, { method = 'GET', token, body, isMultipart } = {}) 
     headers['Content-Type'] = 'application/json';
   }
 
-  let res;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
-    res = await fetch(`${API_URL}${path}`, {
+    const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,
       body: isMultipart ? body : body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
     });
-  } catch (error) {
-    throw new Error(`Cannot reach API at ${API_URL}. Start Laravel on port 8000. (${error.message})`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const error = new Error(json.message || `Request failed (${res.status})`);
+      error.status = res.status;
+      throw error;
+    }
+    return json;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function request(path, options = {}) {
+  const urls = [activeApiUrl, ...getCandidateApiUrls().filter((url) => url !== activeApiUrl)];
+  let lastError;
+
+  for (const baseUrl of urls) {
+    try {
+      const json = rewriteMediaDeep(await requestOnce(baseUrl, path, options));
+      if (baseUrl !== activeApiUrl) {
+        rememberApiUrl(baseUrl);
+      }
+      return json;
+    } catch (error) {
+      lastError = error;
+      if (error?.status) {
+        throw error;
+      }
+    }
   }
 
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(json.message || `Request failed (${res.status})`);
-  }
-  return json;
+  throw new Error(
+    `Cannot reach API at ${activeApiUrl}. Make sure Laravel server is running (e.g. php artisan serve --port=8080). (${lastError?.message || 'timeout'})`
+  );
 }
 
 export const api = {
@@ -50,7 +128,7 @@ export const api = {
   captions: (token, product_ids) => request('/share/captions', { method: 'POST', token, body: { product_ids } }),
   logShare: (token, product_ids) => request('/share', { method: 'POST', token, body: { product_ids, shared_via: 'whatsapp' } }),
   recentProcess: (token) => request('/process/recent', { token }),
-  process: (token, formData) => request('/process', { method: 'POST', token, body: formData, isMultipart: true }),
+  process: (token, formData) => request('/process', { method: 'POST', token, body: formData, isMultipart: true, timeout: 180000 }),
   updateProfile: (token, body) => request('/profile', { method: 'PUT', token, body }),
 };
 
