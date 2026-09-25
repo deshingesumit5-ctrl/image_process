@@ -15,6 +15,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/', fn () => redirect()->route('dashboard'));
 
+Route::post('/password/reset-update', [App\Http\Controllers\Auth\PasswordResetController::class, 'update'])
+    ->name('password.reset.update');
+
 Route::middleware('guest')->group(function () {
     Route::get('/login', [LoginController::class, 'show'])->name('login');
     Route::post('/login', [LoginController::class, 'login']);
