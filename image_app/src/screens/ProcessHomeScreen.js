@@ -22,10 +22,17 @@ export default function ProcessHomeScreen({ navigation }) {
     const result = await ImagePicker.launchImageLibraryAsync({
       allowsMultipleSelection: true,
       quality: 1,
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
     });
     if (result.canceled) return;
-    navigation.navigate('ProcessWizard', { assets: result.assets, step: 1 });
+    navigation.navigate('ProcessWizard', {
+      assets: result.assets.map((asset) => ({
+        uri: asset.uri,
+        width: asset.width,
+        height: asset.height,
+      })),
+      step: 1,
+    });
   };
 
   return (
@@ -34,9 +41,9 @@ export default function ProcessHomeScreen({ navigation }) {
         <Text style={{ color: 'white', fontSize: 22, fontWeight: '700' }}>Process Product Images with Perfect Background</Text>
         <Text style={{ color: '#c7d2fe', marginTop: 8 }}>Select gallery photos or search catalog products, then composite onto Background Master.</Text>
       </View>
-      <Pressable onPress={pickGallery} style={card}><Text style={title}>Select Images</Text><Text>Browse gallery or camera in the next step</Text></Pressable>
+      <Pressable onPress={pickGallery} style={card}><Text style={title}>Select Images From Gallery</Text><Text>Browse gallery or camera in the next step</Text></Pressable>
       <Pressable onPress={() => navigation.navigate('SearchImages')} style={card}>
-        <Text style={title}>Search Images</Text><Text>By category / sub-category / product</Text>
+        <Text style={title}>Select Images From Product Master</Text><Text>By category, sub-category, product</Text>
       </Pressable>
       <Text style={{ fontWeight: '700', marginVertical: 12 }}>Recent Processing</Text>
       {recent.map((row) => (

@@ -111,15 +111,40 @@ class ImageProcessingService
         return $image->fresh();
     }
 
+    public function cutoutUploadedFile(UploadedFile $file): array
+    {
+        $original = $this->storeUpload($file, 'processing/original');
+        $tmp = $this->removeBackground($original);
+        $relative = 'processing/cutout/'.Str::uuid().'.png';
+        Storage::disk('public')->makeDirectory('processing/cutout');
+        Storage::disk('public')->put($relative, file_get_contents($tmp) ?: '');
+        @unlink($tmp);
+
+        return [
+            'original_path' => $original,
+            'cutout_path' => $relative,
+        ];
+    }
+
     public function processUploadedFile(
         UploadedFile $file,
         Background $background,
         string $orientation,
-        ?int $userId = null,
-        string $source = 'app'
+         ?int $userId = null,
+        string $source = 'app',
+        bool $isCutout = false
     ): array {
         $original = $this->storeUpload($file, 'processing/original');
-        $cutout = $this->removeBackground($original);
+
+        if ($isCutout) {
+            // Copy to a temp file: composite() callers @unlink the cutout,
+            // and we must not delete the stored original.
+            $cutout = sys_get_temp_dir().DIRECTORY_SEPARATOR.Str::uuid().'.png';
+            copy(Storage::disk('public')->path($original), $cutout);
+        } else {
+            $cutout = $this->removeBackground($original);
+        }
+
         $composite = $this->composite($cutout, $background, $orientation);
         Storage::disk('public')->put($composite['path'], $composite['bytes']);
         @unlink($cutout);
@@ -143,23 +168,49 @@ class ImageProcessingService
         $abs = Storage::disk('public')->path($relativePath);
         $url = (string) config('images.rembg_url');
         $tmp = sys_get_temp_dir().DIRECTORY_SEPARATOR.Str::uuid().'.png';
+        $contents = file_get_contents($abs);
+        $filename = basename($abs);
 
         try {
             $response = Http::timeout(180)
-                ->attach('image', file_get_contents($abs), basename($abs))
+                ->attach('image', $contents, $filename)
+                ->attach('file', $contents, $filename)
                 ->post($url);
+
+            if (! $response->successful()) {
+                $baseUrl = rtrim((string) config('images.process_url', 'http://127.0.0.1:8001'), '/');
+                $candidates = [
+                    $baseUrl.'/remove',
+                    $baseUrl.'/api/remove',
+                ];
+                foreach ($candidates as $candidateUrl) {
+                    if ($candidateUrl !== $url) {
+                        $fallback = Http::timeout(180)
+                            ->attach('image', $contents, $filename)
+                            ->attach('file', $contents, $filename)
+                            ->post($candidateUrl);
+                        if ($fallback->successful() && $fallback->body()) {
+                            $response = $fallback;
+                            break;
+                        }
+                    }
+                }
+            }
+
             if ($response->successful() && $response->body()) {
                 file_put_contents($tmp, $response->body());
 
                 return $tmp;
             }
-        } catch (\Throwable) {
-            // Keep original pixels if rembg is unavailable.
+
+            if (! $response->successful()) {
+                throw new RuntimeException("Service returned HTTP {$response->status()}: ".$response->body());
+            }
+        } catch (\Throwable $e) {
+            throw new RuntimeException('Background removal failed: '.$e->getMessage());
         }
 
-        copy($abs, $tmp);
-
-        return $tmp;
+        throw new RuntimeException('Background removal returned no image.');
     }
 
     private function composite(string $cutoutPath, Background $background, ?string $orientation = null): array
@@ -203,8 +254,8 @@ class ImageProcessingService
         }
 
         $mime = $file->getMimeType();
-        if (! in_array($mime, config('images.allowed_mimes'), true)) {
-            throw new RuntimeException('Unsupported image type. Use JPEG, PNG, or WebP.');
+               if (! in_array($mime, config('images.allowed_mimes'), true)) {
+            throw new RuntimeException('Unsupported image type.');
         }
     }
 }

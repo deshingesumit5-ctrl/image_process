@@ -68,7 +68,8 @@ class CatalogController extends Controller
         return [
             'id' => $product->id,
             'name' => $product->name,
-            'design_number' => $product->design_number,
+                       'design_number' => $product->design_number,
+            'colour' => $product->colour,
             'barcode' => $product->barcode,
             'orientation' => $product->orientation,
             'keep_original' => $product->keep_original,

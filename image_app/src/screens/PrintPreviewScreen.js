@@ -29,7 +29,7 @@ export default function PrintPreviewScreen({ route }) {
           {[0, 1, 2, 3].map((idx) => {
             const imgUri = gridImages[idx] || mainImage;
             return (
-              <View key={idx} style={{ width: '48.5%', height: 140, borderRadius: 10, backgroundColor: '#f4ede2', marginBottom: 10, overflow: 'hidden', position: 'relative', borderHeight: 1, borderColor: '#e8dfd1' }}>
+              <View key={idx} style={{ width: '48.5%', height: 140, borderRadius: 10, backgroundColor: '#f4ede2', marginBottom: 10, overflow: 'hidden', position: 'relative', borderWidth: 1, borderColor: '#e8dfd1' }}>
                 {imgUri && <Image source={{ uri: imgUri }} style={{ width: '100%', height: '100%' }} resizeMode="contain" />}
                 <View style={{ position: 'absolute', bottom: 6, alignSelf: 'center', backgroundColor: bgColors[idx % bgColors.length], paddingHorizontal: 10, paddingVertical: 2, borderRadius: 10 }}>
                   <Text style={{ fontSize: 10, fontWeight: '700', color: '#1e293b' }}>{labels[idx % labels.length]}</Text>

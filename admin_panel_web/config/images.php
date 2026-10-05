@@ -14,7 +14,11 @@ return [
         'height' => (int) env('IMAGE_V_HEIGHT', 1600),
     ],
     'max_upload_kb' => (int) env('IMAGE_MAX_UPLOAD_KB', 8192),
-    'allowed_mimes' => ['image/jpeg', 'image/png', 'image/webp'],
+   'allowed_mimes' => [
+    'image/jpeg', 'image/png', 'image/webp',
+    'image/gif', 'image/bmp', 'image/x-ms-bmp',
+    'image/avif', 'image/heic', 'image/heif', 'image/tiff',
+],
     'rembg_url' => env('REMBG_URL', 'http://127.0.0.1:8001/remove'),
     'process_url' => env('PROCESS_URL', 'http://127.0.0.1:8001'),
 ];

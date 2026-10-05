@@ -31,6 +31,8 @@ class ProcessController extends Controller
             'images' => ['nullable', 'array'],
             'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
             'apply_to_all' => ['nullable', 'boolean'],
+            'is_cutout' => ['nullable', 'array'],
+            'is_cutout.*' => ['nullable', 'boolean'],
         ]);
 
         $ids = $data['product_image_ids'] ?? [];
@@ -53,25 +55,45 @@ class ProcessController extends Controller
                 );
                 $results[] = [
                     'id' => $processed->id,
-                    'url' => asset('storage/'.$processed->displayPath()),
+                    'url' => url('api/media/'.$processed->displayPath()),
                 ];
             }
         }
 
         if ($request->hasFile('images')) {
-            foreach ($request->file('images') as $file) {
+            foreach ($request->file('images') as $i => $file) {
                 $saved = $processor->processUploadedFile(
                     $file,
                     $background,
                     $data['orientation'] ?? $background->orientation,
                     $request->user()->id,
-                    'app'
+                    'app',
+                    (bool) ($data['is_cutout'][$i] ?? false)
                 );
                 $results[] = [
-                    'url' => asset('storage/'.$saved['processed_path']),
-                    'original_url' => asset('storage/'.$saved['original_path']),
+                    'url' => url('api/media/'.$saved['processed_path']),
+                    'original_url' => url('api/media/'.$saved['original_path']),
                 ];
             }
+        }
+
+        return response()->json(['data' => $results]);
+    }
+
+    public function removeBackground(Request $request, ImageProcessingService $processor)
+    {
+        $request->validate([
+            'images' => ['required', 'array', 'min:1'],
+            'images.*' => ['image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+        ]);
+
+        $results = [];
+        foreach ($request->file('images') as $file) {
+            $saved = $processor->cutoutUploadedFile($file);
+            $results[] = [
+                'url' => url('api/media/'.$saved['cutout_path']),
+                'original_url' => url('api/media/'.$saved['original_path']),
+            ];
         }
 
         return response()->json(['data' => $results]);

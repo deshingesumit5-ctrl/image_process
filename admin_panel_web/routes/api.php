@@ -7,8 +7,17 @@ use App\Http\Controllers\Api\ProcessController;
 use App\Http\Controllers\Api\ShareController;
 use App\Http\Controllers\Api\ShortlistController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::get('/media/{path}', function (string $path) {
+    abort_if(str_contains($path, '..'), 404);
+    abort_unless(Storage::disk('public')->exists($path), 404);
+
+    return response()->file(Storage::disk('public')->path($path), [
+        'Access-Control-Allow-Origin' => '*',
+    ]);
+})->where('path', '.*');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', [AuthController::class, 'me']);
@@ -32,4 +41,5 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/process/recent', [ProcessController::class, 'recent']);
     Route::post('/process', [ProcessController::class, 'store']);
+    Route::post('/process/remove-background', [ProcessController::class, 'removeBackground']);
 });

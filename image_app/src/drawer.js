@@ -40,7 +40,7 @@ export function AppDrawer() {
   const items = [
     { name: 'Home', label: 'Dashboard', show: true },
     { name: 'Categories', label: 'Categories', show: !!perms.category?.view || !!perms.product?.view },
-    { name: 'Processing', label: 'Image Processing', show: !!perms.processing?.view || true },
+    { name: 'Process', label: 'Image Processing', show: !!perms.processing?.view || true },
     { name: 'Shortlist', label: 'Shortlist', show: true },
     { name: 'Profile', label: 'Profile', show: true },
   ].filter((i) => i.show);

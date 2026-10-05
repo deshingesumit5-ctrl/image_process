@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { PRIMARY } from '../config';
+import ProductDetailsTable from '../components/ProductDetailsTable';
 
 export default function SearchImagesScreen({ navigation }) {
   const { token } = useAuth();
@@ -41,7 +42,8 @@ export default function SearchImagesScreen({ navigation }) {
                   <Image source={{ uri: img.url }} style={{ width: 72, height: 72, borderRadius: 8, borderWidth: selected[img.id] ? 3 : 0, borderColor: PRIMARY }} />
                 </Pressable>
               ))}
-            </View>
+                   </View>
+            <ProductDetailsTable product={p} />
           </View>
         ))}
       </ScrollView>

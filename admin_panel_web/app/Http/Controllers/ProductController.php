@@ -97,13 +97,19 @@ class ProductController extends Controller
         return back()->with('success', 'Image deleted.');
     }
 
-    private function persist(Request $request, Product $product, ImageProcessingService $processor): Product
+       private function persist(Request $request, Product $product, ImageProcessingService $processor): Product
     {
+        $request->merge([
+            'status' => $request->boolean('status'),
+            'keep_original' => $request->boolean('keep_original'),
+        ]);
+
         $data = $request->validate([
             'category_id' => ['required', 'exists:categories,id'],
             'sub_category_id' => ['required', 'exists:sub_categories,id'],
             'name' => ['required', 'string', 'max:160'],
-            'design_number' => ['nullable', 'string', 'max:80'],
+                       'design_number' => ['nullable', 'string', 'max:80'],
+            'colour' => ['nullable', 'string', 'max:120'],
             'barcode' => ['nullable', 'string', 'max:80'],
             'display_order' => ['nullable', 'integer', 'min:1'],
             'status' => ['nullable', 'boolean'],
@@ -112,7 +118,7 @@ class ProductController extends Controller
             'sizes' => ['nullable', 'array'],
             'sizes.*.size' => ['nullable', 'string', 'max:20'],
             'sizes.*.rate' => ['nullable', 'numeric', 'min:0'],
-            'images.*' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:8192'],
+            'images.*' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,gif,bmp,avif,heic,heif,tif,tiff', 'max:20480'],
         ]);
 
         return DB::transaction(function () use ($data, $request, $product, $processor) {
@@ -120,7 +126,8 @@ class ProductController extends Controller
                 'category_id' => $data['category_id'],
                 'sub_category_id' => $data['sub_category_id'],
                 'name' => $data['name'],
-                'design_number' => $data['design_number'] ?? null,
+                             'design_number' => $data['design_number'] ?? null,
+                'colour' => $data['colour'] ?? null,
                 'barcode' => $data['barcode'] ?? null,
                 'display_order' => $data['display_order'] ?? 1,
                 'status' => $request->boolean('status'),
