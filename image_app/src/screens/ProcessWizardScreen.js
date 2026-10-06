@@ -21,7 +21,10 @@ import {
   persistLocalImage,
   saveImagesToGallery,
   shareCaptionAndImages,
+  buildProductCaption,
 } from "../share";
+import ProductSheet from "../components/ProductSheet";
+import ViewShot from "react-native-view-shot";
 
 const CHIPS = ["All", "White", "Studio", "Wood", "Gradient", "Wall", "Custom"];
 const STEPS = [
@@ -38,7 +41,7 @@ const corsSafe = (uri) =>
   String(uri).replace(/^(https?:\/\/[^/]+)\/storage\//, "$1/api/media/");
 
 export default function ProcessWizardScreen({ route, navigation }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [step, setStep] = useState(route.params?.step || 1);
   const [assets, setAssets] = useState(route.params?.assets || []);
   const [originals, setOriginals] = useState(
@@ -58,6 +61,9 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const [scale, setScale] = useState(0.92);
   const [cropOpen, setCropOpen] = useState(false);
   const productImageIds = route.params?.productImageIds || [];
+  const [productList, setProductList] = useState([]);
+  const [productQuery, setProductQuery] = useState("");
+  const sheetRef = useRef(null);
 
   useEffect(() => {
     api
@@ -70,6 +76,13 @@ export default function ProcessWizardScreen({ route, navigation }) {
         setBackgrounds([...customBackgrounds]);
       });
   }, [token, orientation, chip, customBackgrounds]);
+
+  useEffect(() => {
+    api
+      .products(token, productQuery ? { q: productQuery } : {})
+      .then((r) => setProductList(r.data || r.products || []))
+      .catch(() => setProductList([]));
+  }, [token, productQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -427,6 +440,56 @@ export default function ProcessWizardScreen({ route, navigation }) {
     }
   };
 
+  const applyBgToAll = async () => {
+    if (!background) {
+      Alert.alert("Choose a background");
+      return;
+    }
+    if (busy) return;
+    setBusy(true);
+    try {
+      const updated = [...assets];
+      for (let i = 0; i < updated.length; i += 1) {
+        const item = updated[i];
+        const form = new FormData();
+        if (!background.isCustom)
+          form.append("background_id", String(background.id));
+        form.append("orientation", orientation);
+        form.append("apply_to_all", "0");
+        form.append("is_cutout[0]", item.cutoutUri ? "1" : "0");
+        await appendImageFile(form, item.cutoutUri || item.uri, i);
+        const res = await api.process(token, form);
+        const url = res.data?.[0]?.url;
+        updated[i] = url
+          ? { ...item, uri: await persistLocalImage(url), composited: true }
+          : { ...item, composited: true };
+        setAssets([...updated]);
+      }
+      setResult(updated.map((a) => ({ url: a.uri })));
+      Alert.alert("Done", "Background applied to all images.");
+    } catch (e) {
+      Alert.alert("Apply failed", e.message || "Could not apply background.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const linkProduct = async (p) => {
+    let full = p;
+    try {
+      const r = await api.product(token, p.id);
+      full = r.data || r.product || r;
+    } catch (e) {}
+    setAssets((list) =>
+      list.map((item, i) =>
+        i === current ? { ...item, product: full } : item,
+      ),
+    );
+    // jump to the next image that has no product yet
+    const next = assets.findIndex((a, i) => i !== current && !a.product);
+    if (next >= 0) setCurrent(next);
+  };
+
   const saveCurrentToGallery = async () => {
     const asset = assets[current];
     if (!asset) return;
@@ -438,37 +501,70 @@ export default function ProcessWizardScreen({ route, navigation }) {
     }
   };
 
+  const captureSheet = async () => {
+    if (!sheetRef.current?.capture) {
+      throw new Error(
+        "Final page is not ready. Open the Final Output step first.",
+      );
+    }
+    const uri = await sheetRef.current.capture();
+    if (!uri) throw new Error("Could not capture the final page.");
+    return uri;
+  };
+
   const saveResultsToGallery = async () => {
-    const urls = (
-      result.length ? result.map((item) => item.url) : assets.map((a) => a.uri)
-    ).filter(Boolean);
     try {
-      const count = await saveImagesToGallery(urls);
-      Alert.alert("Saved", `${count} image(s) saved to gallery.`);
+      const uri = await captureSheet();
+      await saveImagesToGallery([uri]);
+      Alert.alert("Saved", "Full page saved to gallery.");
     } catch (e) {
       Alert.alert("Save failed", e.message);
     }
   };
 
   const shareOnWhatsApp = async () => {
-    const urls = (
-      result.length ? result.map((item) => item.url) : assets.map((a) => a.uri)
-    ).filter(Boolean);
-    let caption = "";
-    if (productImageIds.length) {
-      try {
-        const payload = await api.captions(token, productImageIds);
-        caption = payload.caption;
-      } catch (e) {}
+    try {
+      const uri = await captureSheet();
+      const linked = assets.map((a) => a.product).filter(Boolean);
+      const source = linked.length ? linked : products;
+      console.log("[SHARE] product sample", JSON.stringify(source[0]));
+      let caption = source.length
+        ? buildProductCaption(
+            source,
+            user?.phone || user?.mobile || user?.contact || "",
+          )
+        : "";
+      if (!caption && productImageIds.length) {
+        try {
+          const payload = await api.captions(token, productImageIds);
+          caption = payload.caption;
+        } catch (e) {}
+      }
+      if (!caption) caption = "Ramchandra Dresses";
+      await shareCaptionAndImages(caption, [uri]);
+    } catch (e) {
+      Alert.alert("Share failed", e.message);
     }
-    if (!caption) {
-      caption =
-        "Ramchandra Dresses\nDesign No.: 92093\nProduct: Catalog Product\nAvailable Sizes: M, L, XL, XXL\nRate: ₹499 onwards\n\nContact:\nThank you for your enquiry. Please contact us for bulk orders and the latest collection.";
-    }
-    await shareCaptionAndImages(caption, urls);
   };
 
+  const products = (() => {
+    const fromRoute = route.params?.products || [];
+    const fromAssets = assets.map((a) => a.product).filter(Boolean);
+    const all = fromRoute.length ? fromRoute : fromAssets;
+    const seen = new Set();
+    return all.filter((p) => {
+      const key = p.id ?? p.design_number;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  })();
+
   const preview = assets[current];
+  const sheetItems = (result.length ? result : assets).map((item, i) => ({
+    uri: item.url || item.uri,
+    product: assets[i]?.product,
+  }));
   const previewH =
     orientation === "horizontal" ? Math.round(PREVIEW_W * 0.72) : 300;
   const showOverlay = Boolean(
@@ -590,8 +686,8 @@ export default function ProcessWizardScreen({ route, navigation }) {
                   <Image
                     source={{ uri: a.uri }}
                     style={{
-                      width: 80,
-                      height: 80,
+                      width: 72,
+                      height: 72,
                       borderRadius: 12,
                       borderWidth: current === idx ? 3 : 0,
                       borderColor: PRIMARY,
@@ -599,6 +695,23 @@ export default function ProcessWizardScreen({ route, navigation }) {
                     }}
                     resizeMode="cover"
                   />
+                  {a.product?.design_number ? (
+                    <Text
+                      style={{
+                        position: "absolute",
+                        bottom: 4,
+                        left: 4,
+                        backgroundColor: "#5b3a1e",
+                        color: "white",
+                        fontSize: 10,
+                        paddingHorizontal: 6,
+                        borderRadius: 6,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {a.product.design_number}
+                    </Text>
+                  ) : null}
                 </Pressable>
               ))}
             </View>
@@ -608,6 +721,58 @@ export default function ProcessWizardScreen({ route, navigation }) {
               <Text style={{ color: "#64748b", marginVertical: 16 }}>
                 No image selected yet. Use Add More or Camera.
               </Text>
+            )}
+            {assets.length > 0 && (
+              <View
+                style={{
+                  backgroundColor: "white",
+                  borderRadius: 14,
+                  padding: 10,
+                  marginBottom: 10,
+                  borderWidth: 1,
+                  borderColor: "#e2e8f0",
+                }}
+              >
+                <Text style={{ fontWeight: "700", marginBottom: 4 }}>
+                  Link product to image {current + 1} of {assets.length}
+                </Text>
+                <Text
+                  style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}
+                >
+                  Linked: {assets[current]?.product?.design_number || "none"}
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {productList.map((p) => (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => linkProduct(p)}
+                      style={{
+                        backgroundColor:
+                          assets[current]?.product?.id === p.id
+                            ? PRIMARY
+                            : "#e2e8f0",
+                        borderRadius: 14,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        marginRight: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          fontWeight: "600",
+                          color:
+                            assets[current]?.product?.id === p.id
+                              ? "white"
+                              : "#0f172a",
+                        }}
+                      >
+                        {p.design_number || p.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
             )}
             <Row>
               <Chip label="+ Add More" onPress={addMore} />
@@ -689,7 +854,53 @@ export default function ProcessWizardScreen({ route, navigation }) {
 
         {step === 3 && (
           <>
-            {preview?.uri ? previewBox(preview.uri) : null}
+            <View
+              style={{
+                flexDirection: "row",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 12,
+              }}
+            >
+              {assets.map((a, i) => {
+                const overlay =
+                  background?.url &&
+                  !a.composited &&
+                  (applyAll || i === current);
+                return (
+                  <Pressable
+                    key={`${a.uri}-${i}`}
+                    onPress={() => setCurrent(i)}
+                    style={{
+                      width: 140,
+                      height: 190,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      backgroundColor: "white",
+                      borderWidth: current === i ? 3 : 1,
+                      borderColor: current === i ? PRIMARY : "#e2e8f0",
+                    }}
+                  >
+                    {overlay ? (
+                      <Image
+                        source={{ uri: background.url }}
+                        style={{
+                          position: "absolute",
+                          width: "100%",
+                          height: "100%",
+                        }}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+                    <Image
+                      source={{ uri: a.uri }}
+                      style={{ width: "100%", height: "100%" }}
+                      resizeMode="contain"
+                    />
+                  </Pressable>
+                );
+              })}
+            </View>
             <View
               style={{
                 flexDirection: "row",
@@ -754,7 +965,16 @@ export default function ProcessWizardScreen({ route, navigation }) {
                   style={{ marginRight: 10, alignItems: "center" }}
                 >
                   <Pressable
-                    onPress={() => setBackground(bg)}
+                    onPress={() => {
+                      setBackground(bg);
+                      setAssets((list) =>
+                        list.map((x) =>
+                          x.cutoutUri
+                            ? { ...x, uri: x.cutoutUri, composited: false }
+                            : x,
+                        ),
+                      );
+                    }}
                     style={{
                       borderWidth: background?.id === bg.id ? 3 : 1,
                       borderColor:
@@ -829,9 +1049,10 @@ export default function ProcessWizardScreen({ route, navigation }) {
                 onPress={() => setOrientation("vertical")}
               />
               <Chip
-                label={busy ? "Processing…" : "Apply BG"}
-                onPress={removeBackground}
+                label={busy ? "Processing…" : "Apply BG to All Images"}
+                onPress={applyBgToAll}
               />
+              <Chip label="Apply to Selected Only" onPress={removeBackground} />
               <Chip label="Proceed to Edit &rarr;" onPress={() => setStep(2)} />
               <Chip
                 label={
@@ -846,45 +1067,30 @@ export default function ProcessWizardScreen({ route, navigation }) {
         {step === 4 && (
           <>
             <Text style={{ fontWeight: "700", marginBottom: 12 }}>
-              Final Edited Images
+              Final Page
             </Text>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 8,
-                marginBottom: 16,
-              }}
+            <ViewShot
+              ref={sheetRef}
+              options={{ format: "png", quality: 1 }}
+              style={{ alignSelf: "center" }}
             >
-              {(result.length ? result : assets).map((item, i) => (
-                <Image
-                  key={i}
-                  source={{ uri: item.url || item.uri }}
-                  style={{
-                    width: 140,
-                    height: 190,
-                    borderRadius: 12,
-                    backgroundColor: "white",
-                    borderWidth: 1,
-                    borderColor: "#e2e8f0",
-                  }}
-                  resizeMode="contain"
-                />
-              ))}
-            </View>
+              <ProductSheet items={sheetItems} />
+            </ViewShot>
             <Row>
               <Chip
-                label="Save All to Gallery"
+                label="Save Page to Gallery"
                 onPress={saveResultsToGallery}
               />
-              <Chip label="Share on WhatsApp" onPress={shareOnWhatsApp} />
+              <Chip label="Share Page on WhatsApp" onPress={shareOnWhatsApp} />
               <Chip
                 label="Print Preview"
                 onPress={() =>
                   navigation.navigate("PrintPreview", {
-                    images: result.length
-                      ? result
-                      : assets.map((a) => ({ url: a.uri })),
+                    images: sheetItems.map((it) => ({
+                      url: it.uri,
+                      product: it.product,
+                    })),
+                    products,
                   })
                 }
               />

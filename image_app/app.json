@@ -19,10 +19,15 @@
       },
       "usesCleartextTraffic": true,
       "permissions": [
-        "CAMERA",
-        "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
       ]
     },
     "plugins": [
@@ -39,7 +44,10 @@
       ]
     ],
     "extra": {
-      "apiUrl": "http://127.0.0.1:8000/api"
+      "apiUrl": "http://127.0.0.1:8000/api",
+      "eas": {
+        "projectId": "e0a0ba7b-059c-48e7-b2c4-4df7a6ad1fa7"
+      }
     }
   }
 }
