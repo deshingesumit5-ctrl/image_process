@@ -1,0 +1,5 @@
+# Ignore parent-level backend folders and local files
+../admin_panel_web/
+../processing_service/
+node_modules/
+.git/
