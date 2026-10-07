@@ -489,34 +489,16 @@ export default function ProcessWizardScreen({ route, navigation }) {
     const next = assets.findIndex((a, i) => i !== current && !a.product);
     if (next >= 0) setCurrent(next);
   };
-
-  const saveCurrentToGallery = async () => {
-    const asset = assets[current];
-    if (!asset) return;
-    try {
-      const count = await saveImagesToGallery([asset.uri]);
-      Alert.alert("Saved", `${count} image saved to gallery.`);
-    } catch (e) {
-      Alert.alert("Save failed", e.message);
-    }
-  };
-
   const captureSheet = async () => {
-    if (!sheetRef.current?.capture) {
-      throw new Error(
-        "Final page is not ready. Open the Final Output step first.",
-      );
-    }
-    const uri = await sheetRef.current.capture();
-    if (!uri) throw new Error("Could not capture the final page.");
-    return uri;
+    if (!sheetRef.current) throw new Error("Page is not ready yet.");
+    return await sheetRef.current.capture();
   };
 
   const saveResultsToGallery = async () => {
     try {
       const uri = await captureSheet();
       await saveImagesToGallery([uri]);
-      Alert.alert("Saved", "Full page saved to gallery.");
+      Alert.alert("Saved", "Page saved to gallery.");
     } catch (e) {
       Alert.alert("Save failed", e.message);
     }
@@ -610,7 +592,11 @@ export default function ProcessWizardScreen({ route, navigation }) {
   return (
     <>
       <ScrollView
-        contentContainerStyle={{ padding: 16, backgroundColor: "#f8fafc" }}
+        contentContainerStyle={{
+          padding: 16,
+          paddingBottom: 60,
+          backgroundColor: "#f8fafc",
+        }}
       >
         <View
           style={{
@@ -1069,13 +1055,21 @@ export default function ProcessWizardScreen({ route, navigation }) {
             <Text style={{ fontWeight: "700", marginBottom: 12 }}>
               Final Page
             </Text>
-            <ViewShot
-              ref={sheetRef}
-              options={{ format: "png", quality: 1 }}
-              style={{ alignSelf: "center" }}
-            >
-              <ProductSheet items={sheetItems} />
-            </ViewShot>
+            <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
+              <ViewShot
+                ref={sheetRef}
+                collapsable={false}
+                options={{ format: "png", quality: 1 }}
+                style={{
+                  width: "100%",
+                  backgroundColor: "#f8fafc",
+                  paddingVertical: 4,
+                }}
+              >
+                <ProductSheet items={sheetItems} />
+              </ViewShot>
+            </View>
+            <View style={{ height: 24 }} />
             <Row>
               <Chip
                 label="Save Page to Gallery"
@@ -1168,13 +1162,19 @@ async function appendImageFile(form, uri, index) {
     return;
   }
   const png = String(uri).toLowerCase().includes(".png");
-  form.append("images[]", {
-    uri,
-    name: png ? `image-${index}.png` : `image-${index}.jpg`,
-    type: png ? "image/png" : "image/jpeg",
-  });
+  try {
+    // New Expo fetch needs a real file object, not { uri, name, type }
+    const { File: FsFile } = require("expo-file-system");
+    form.append("images[]", new FsFile(uri));
+  } catch (e) {
+    console.log("[UPLOAD] File class failed, using legacy part:", e?.message);
+    form.append("images[]", {
+      uri,
+      name: png ? `image-${index}.png` : `image-${index}.jpg`,
+      type: png ? "image/png" : "image/jpeg",
+    });
+  }
 }
-
 function loadHtmlImage(uri) {
   return new Promise((resolve, reject) => {
     const img = new window.Image();

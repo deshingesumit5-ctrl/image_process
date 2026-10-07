@@ -30,13 +30,16 @@
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     @endif
 </head>
-<body class="min-h-screen bg-[#F3F4F6] text-slate-800 flex flex-col font-sans">
+<body x-data="{ mobileOpen: false }" :class="{ 'overflow-hidden': mobileOpen }" class="min-h-screen bg-[#F3F4F6] text-slate-800 flex flex-col font-sans">
 
     <!-- Navbar Header -->
     <header class="bg-[#0B132B] text-white shadow-md z-40 sticky top-0">
-        <div class="max-w-[1600px] mx-auto px-6 h-16 flex items-center justify-between">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
             <!-- Left Logo -->
-            <div class="flex items-center space-x-8">
+                       <div class="flex items-center space-x-3 lg:space-x-8">
+                <button @click="mobileOpen = true" class="lg:hidden p-2 -ml-2 rounded-lg text-slate-200 hover:bg-white/10" aria-label="Open menu">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                </button>
                 <a href="{{ route('dashboard') }}" class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
                     <span class="text-white">Admin Panel Web</span>
                 </a>
@@ -169,8 +172,52 @@
         </div>
     </header>
 
+    <!-- Mobile Sidebar Menu -->
+    <div x-show="mobileOpen" x-cloak x-transition.opacity class="fixed inset-0 z-50 lg:hidden" @keydown.escape.window="mobileOpen = false">
+        <div class="absolute inset-0 bg-black/50" @click="mobileOpen = false"></div>
+        <aside class="absolute left-0 top-0 h-full w-72 max-w-[85%] bg-[#0B132B] text-white shadow-2xl overflow-y-auto">
+            <div class="h-16 px-4 flex items-center justify-between border-b border-white/10">
+                <span class="text-lg font-bold">Admin Panel Web</span>
+                <button @click="mobileOpen = false" class="p-2 rounded-lg hover:bg-white/10" aria-label="Close menu">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <nav class="p-3 space-y-1 text-sm font-medium">
+                <a href="{{ route('dashboard') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('dashboard') ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Dashboard</a>
+
+                <p class="px-3 pt-4 pb-1 text-xs uppercase tracking-wider text-slate-500">Business Masters</p>
+                @if(!empty($menuPermissions['category']['view'] ?? true))
+                    <a href="{{ route('categories.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('categories.*') ? 'bg-emerald-600/20 text-emerald-400 font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Category Master</a>
+                @endif
+                @if(!empty($menuPermissions['sub_category']['view'] ?? true))
+                    <a href="{{ route('sub-categories.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('sub-categories.*') ? 'bg-emerald-600/20 text-emerald-400 font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Sub-Category Master</a>
+                @endif
+                @if(!empty($menuPermissions['product']['view'] ?? true))
+                    <a href="{{ route('products.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('products.*') ? 'bg-emerald-600/20 text-emerald-400 font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Product Master</a>
+                @endif
+                @if(!empty($menuPermissions['background']['view'] ?? true))
+                    <a href="{{ route('backgrounds.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('backgrounds.*') ? 'bg-emerald-600/20 text-emerald-400 font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Background Master</a>
+                @endif
+
+                <p class="px-3 pt-4 pb-1 text-xs uppercase tracking-wider text-slate-500">Management</p>
+                @if(!empty($menuPermissions['roles']['view'] ?? true))
+                    <a href="{{ route('roles.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('roles.*') ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Roles & Access</a>
+                @endif
+                @if(!empty($menuPermissions['users']['view'] ?? true))
+                    <a href="{{ route('users.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('users.*') ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 hover:bg-white/10' }}">User Master</a>
+                @endif
+                @if(!empty($menuPermissions['share']['view'] ?? true))
+                    <a href="{{ route('share-template.edit') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('share-template.*') ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Share Product</a>
+                @endif
+                @if(!empty($menuPermissions['reports']['view'] ?? true))
+                    <a href="{{ route('reports.index') }}" class="block px-3 py-2.5 rounded-lg {{ request()->routeIs('reports.*') ? 'bg-white/10 text-white font-semibold' : 'text-slate-300 hover:bg-white/10' }}">Reports</a>
+                @endif
+            </nav>
+        </aside>
+    </div>
+
     <!-- Main Body Container -->
-    <main class="flex-1 max-w-[1600px] w-full mx-auto p-6 lg:p-8">
+   <main class="flex-1 max-w-[1600px] w-full mx-auto p-4 sm:p-6 lg:p-8">
         @if(session('success'))
             <div class="mb-6 rounded-xl bg-emerald-50 border border-emerald-200 px-5 py-3.5 text-emerald-800 flex items-center justify-between shadow-sm">
                 <div class="flex items-center gap-3">
@@ -207,5 +254,38 @@
         </div>
     </footer>
 
+<style>
+  @media (max-width: 768px) {
+    main table { width: 100%; border: 0; }
+    main table thead { display: none; }
+    main table tbody { display: block; }
+    main table tr {
+      display: block; margin-bottom: 12px; background: #fff;
+      border: 1px solid #e5e7eb; border-radius: 12px; padding: 8px 12px;
+    }
+    main table td {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      padding: 8px 0; border: 0; border-bottom: 1px solid #f1f5f9;
+      text-align: right; word-break: break-word;
+    }
+    main table td:last-child { border-bottom: 0; }
+    main table td::before {
+      content: attr(data-label); font-weight: 600; color: #64748b;
+      text-align: left; flex-shrink: 0;
+    }
+  }
+</style>
+<script>
+  document.querySelectorAll('main table').forEach(function (t) {
+    var heads = Array.from(t.querySelectorAll('thead th')).map(function (th) {
+      return th.textContent.trim();
+    });
+    t.querySelectorAll('tbody tr').forEach(function (tr) {
+      Array.from(tr.children).forEach(function (td, i) {
+        if (heads[i]) td.setAttribute('data-label', heads[i]);
+      });
+    });
+  });
+</script>
 </body>
 </html>

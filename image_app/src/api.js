@@ -3,20 +3,23 @@ import { API_URL, getCandidateApiUrls } from "./config";
 
 const API_URL_KEY = "api_url";
 const TIMEOUT_MS = 3000;
-let activeApiUrl = API_URL;
+// Always end with /api, whether or not the saved address has it
+const withApi = (u) =>
+  `${String(u || "").trim().replace(/\/+$/, "").replace(/\/api$/, "")}/api`;
+let activeApiUrl = withApi(API_URL);
 
 export async function restoreApiUrl() {
   try {
     const saved = await AsyncStorage.getItem(API_URL_KEY);
-    if (saved) {
-      activeApiUrl = saved;
+      if (saved) {
+      activeApiUrl = withApi(saved);
     }
   } catch (e) {}
 }
 
 function rememberApiUrl(url) {
-  activeApiUrl = url;
-  AsyncStorage.setItem(API_URL_KEY, url).catch(() => {});
+  activeApiUrl = withApi(url);
+  AsyncStorage.setItem(API_URL_KEY, activeApiUrl).catch(() => {});
 }
 
 export function getApiBaseUrl() {
@@ -114,7 +117,9 @@ async function requestOnce(
 async function request(path, options = {}) {
   const urls = [
     activeApiUrl,
-    ...getCandidateApiUrls().filter((url) => url !== activeApiUrl),
+    ...getCandidateApiUrls()
+      .map(withApi)
+      .filter((url) => url !== activeApiUrl),
   ];
   let lastError;
 

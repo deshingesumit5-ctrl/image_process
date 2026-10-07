@@ -44,11 +44,11 @@ export function getCandidateApiUrls() {
   const host = detectHost();
   const list = [
     process.env.EXPO_PUBLIC_API_URL,
+    `http://${host}:8082/api`,
     `http://${host}:8000/api`,
-    `http://${host}:8080/api`,
   ];
   if (Platform.OS === 'android') {
-    list.push('http://10.0.2.2:8000/api', 'http://10.0.2.2:8080/api');
+    list.push('http://10.0.2.2:8082/api', 'http://10.0.2.2:8000/api');
   }
   if (Platform.OS === 'web') {
     list.push(
@@ -61,6 +61,6 @@ export function getCandidateApiUrls() {
   return [...new Set(list.filter(Boolean))];
 }
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || `http://${detectHost()}:8000/api`;
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || `http://${detectHost()}:8082/api`;
 
 export const PRIMARY = '#4F46E5';

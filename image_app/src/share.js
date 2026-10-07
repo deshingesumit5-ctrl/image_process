@@ -5,6 +5,7 @@ let FileSystem = null;
 let Sharing = null;
 let IntentLauncher = null;
 let MediaLibrary = null;
+let RNShare = null;
 
 if (Platform.OS !== "web") {
   try {
@@ -18,7 +19,14 @@ if (Platform.OS !== "web") {
   } catch (e) {}
   try {
     MediaLibrary = require("expo-media-library");
-  } catch (e) {}
+  } catch (e) {
+    console.log("[MEDIA] load failed:", e && e.message);
+  }
+  try {
+    RNShare = require("react-native-share").default;
+  } catch (e) {
+    console.log("[SHARE] react-native-share load failed:", e && e.message);
+  }
 }
 
 export async function persistLocalImage(uri) {
@@ -79,7 +87,7 @@ export async function saveImagesToGallery(uris = []) {
     throw new Error("Media library plugin is not available on this device.");
   }
 
-  const perm = await MediaLibrary.requestPermissionsAsync();
+  const perm = await MediaLibrary.requestPermissionsAsync(true);
   if (!perm.granted) {
     throw new Error("Gallery permission is required to save images to device.");
   }
@@ -178,26 +186,21 @@ export async function shareCaptionAndImages(caption, imageUrls = []) {
       }
     }
   }
-
-  if (Platform.OS === "android" && IntentLauncher && files.length) {
+  if (RNShare && files.length) {
     try {
-      const streams = [];
-      for (const file of files) {
-        streams.push(await FileSystem.getContentUriAsync(file));
-      }
-      await IntentLauncher.startActivityAsync(
-        "android.intent.action.SEND_MULTIPLE",
-        {
-          type: "image/*",
-          extra: {
-            "android.intent.extra.TEXT": text,
-            "android.intent.extra.STREAM": streams,
-          },
-        },
-      );
+      const opts =
+        files.length === 1
+          ? { url: files[0] }
+          : { urls: files };
+      await RNShare.open({
+        ...opts,
+        message: text,
+        type: "image/png",
+        failOnCancel: false,
+      });
       return;
-    } catch {
-      // Fallback
+    } catch (e) {
+      console.log("[SHARE] native share failed:", e && e.message);
     }
   }
 
