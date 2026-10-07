@@ -40,10 +40,13 @@ function detectHost() {
 
 // NOTE: Backend API runs on port 8000. Port 8080 is the Expo web dev
 // server itself and must never be the default/first candidate here.
+export const DEFAULT_API_URL = 'https://15-206-203-230.sslip.io/api';
+
 export function getCandidateApiUrls() {
   const host = detectHost();
   const list = [
     process.env.EXPO_PUBLIC_API_URL,
+    DEFAULT_API_URL,
     `http://${host}:8082/api`,
     `http://${host}:8000/api`,
   ];
@@ -61,6 +64,6 @@ export function getCandidateApiUrls() {
   return [...new Set(list.filter(Boolean))];
 }
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL || `http://${detectHost()}:8082/api`;
+export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
 export const PRIMARY = '#4F46E5';

@@ -11,8 +11,12 @@ let activeApiUrl = withApi(API_URL);
 export async function restoreApiUrl() {
   try {
     const saved = await AsyncStorage.getItem(API_URL_KEY);
-      if (saved) {
-      activeApiUrl = withApi(saved);
+    if (saved) {
+      const isOldLocal = /192\.168\.|localhost|127\.0\.0\.1|10\.0\.2\.2/.test(saved);
+      const isTargetRemote = API_URL.includes("sslip.io");
+      if (!isOldLocal || !isTargetRemote) {
+        activeApiUrl = withApi(saved);
+      }
     }
   } catch (e) {}
 }
@@ -32,7 +36,10 @@ export function rewriteMediaUrl(url) {
   }
   try {
     const parsed = new URL(url);
-    if (!["127.0.0.1", "localhost", "10.0.2.2"].includes(parsed.hostname)) {
+    if (
+      !["127.0.0.1", "localhost", "10.0.2.2"].includes(parsed.hostname) &&
+      !parsed.hostname.startsWith("192.168.")
+    ) {
       return url;
     }
     const apiBase = activeApiUrl.replace(/\/api\/?$/, "");
