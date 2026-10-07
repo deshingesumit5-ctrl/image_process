@@ -6,6 +6,10 @@ let Sharing = null;
 let IntentLauncher = null;
 let MediaLibrary = null;
 let RNShare = null;
+let Clipboard = null;
+
+const toFileUri = (p) =>
+  !p ? p : /^(file|content|https?|data|blob):/i.test(String(p)) ? p : `file://${p}`;
 
 if (Platform.OS !== "web") {
   try {
@@ -26,6 +30,11 @@ if (Platform.OS !== "web") {
     RNShare = require("react-native-share").default;
   } catch (e) {
     console.log("[SHARE] react-native-share load failed:", e && e.message);
+  }
+  try {
+    Clipboard = require("expo-clipboard");
+  } catch (e) {
+    console.log("[CLIP] load failed:", e && e.message);
   }
 }
 
@@ -83,23 +92,52 @@ export async function saveImagesToGallery(uris = []) {
     return saved;
   }
 
-  if (!MediaLibrary) {
-    throw new Error("Media library plugin is not available on this device.");
+  if (MediaLibrary) {
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      if (perm.granted) {
+        let savedCount = 0;
+        for (let i = 0; i < cleanUris.length; i += 1) {
+          const local = toFileUri(
+            await persistLocalImage(toFileUri(cleanUris[i])),
+          );
+          if (!local) continue;
+          await MediaLibrary.saveToLibraryAsync(local);
+          savedCount += 1;
+        }
+        if (savedCount) return savedCount;
+      }
+    } catch (e) {
+      console.log("[MEDIA] save failed, using folder picker:", e && e.message);
+    }
   }
 
-  const perm = await MediaLibrary.requestPermissionsAsync(true);
-  if (!perm.granted) {
-    throw new Error("Gallery permission is required to save images to device.");
+  // Fallback: let the user pick a folder (e.g. Pictures) via Android SAF
+  const SAF = FileSystem && FileSystem.StorageAccessFramework;
+  if (Platform.OS !== "android" || !SAF) {
+    throw new Error("Could not save to the gallery on this device.");
   }
-
-  let saved = 0;
+  const dir = await SAF.requestDirectoryPermissionsAsync();
+  if (!dir.granted) {
+    throw new Error("Choose a folder (for example Pictures) to save the image.");
+  }
+  let n = 0;
   for (let i = 0; i < cleanUris.length; i += 1) {
-    const local = await persistLocalImage(cleanUris[i]);
-    if (!local) continue;
-    await MediaLibrary.saveToLibraryAsync(local);
-    saved += 1;
+    const local = toFileUri(await persistLocalImage(toFileUri(cleanUris[i])));
+    const b64 = await FileSystem.readAsStringAsync(local, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const dest = await SAF.createFileAsync(
+      dir.directoryUri,
+      `product-page-${Date.now()}-${i + 1}`,
+      "image/png",
+    );
+    await FileSystem.writeAsStringAsync(dest, b64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    n += 1;
   }
-  return saved;
+  return n;
 }
 
 export async function shareCaptionAndImages(caption, imageUrls = []) {
@@ -170,37 +208,66 @@ export async function shareCaptionAndImages(caption, imageUrls = []) {
     const cacheDir =
       FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
     for (let i = 0; i < cleanUrls.length; i += 1) {
-      const dest = `${cacheDir}share-${Date.now()}-${i}.png`;
+      // Use a per-iteration unique timestamp so simultaneous iterations never
+      // produce the same destination filename (Date.now() alone can repeat
+      // inside the same millisecond loop tick and causes file conflicts).
+      const dest = `${cacheDir}share-${Date.now()}-${i}-${Math.random()
+        .toString(36)
+        .slice(2, 6)}.png`;
       try {
         if (
           cleanUrls[i].startsWith("http://") ||
           cleanUrls[i].startsWith("https://")
         ) {
           const downloaded = await FileSystem.downloadAsync(cleanUrls[i], dest);
-          files.push(downloaded.uri);
+          const uri = toFileUri(downloaded.uri);
+          // Verify the file is fully written and non-empty before including it
+          // in the share payload. An empty or missing file makes WhatsApp drop
+          // the image and fall back to text-only, causing the intermittent bug.
+          try {
+            const info = await FileSystem.getInfoAsync(uri);
+            if (info.exists && info.size > 0) {
+              files.push(uri);
+            } else {
+              console.log("[SHARE] downloaded file not ready:", uri, info);
+            }
+          } catch (infoErr) {
+            // Cannot stat — include optimistically so share still proceeds
+            files.push(uri);
+          }
         } else {
-          files.push(cleanUrls[i]);
+          files.push(toFileUri(cleanUrls[i]));
         }
-      } catch {
-        // skip failed
+      } catch (e) {
+        console.log("[SHARE] download failed:", e && e.message);
       }
     }
   }
   if (RNShare && files.length) {
     try {
-      const opts =
-        files.length === 1
-          ? { url: files[0] }
-          : { urls: files };
-      await RNShare.open({
-        ...opts,
+      if (Clipboard) await Clipboard.setStringAsync(text); // safety net: paste if WhatsApp drops caption
+    } catch (e) {}
+    // Build media payload: single verified file → url, multiple → urls
+    const media =
+      files.length === 1 ? { url: files[0] } : { urls: files };
+    // shareSingle targets WhatsApp directly via package intent:
+    //   EXTRA_STREAM → image (shown in WhatsApp compose preview)
+    //   EXTRA_TEXT   → message (pre-fills the "Add a caption…" field)
+    // open() (system share sheet) is NOT used as fallback here because it
+    // provably strips EXTRA_STREAM and sends only text to WhatsApp.
+    // If shareSingle throws (e.g. WhatsApp already foregrounded from a prior
+    // tap), fall through to the Share.share last-resort below.
+    try {
+      await RNShare.shareSingle({
+        ...media,
+        social: RNShare.Social.WHATSAPP,
         message: text,
         type: "image/png",
         failOnCancel: false,
       });
       return;
     } catch (e) {
-      console.log("[SHARE] native share failed:", e && e.message);
+      console.log("[SHARE] whatsapp direct failed:", e && e.message);
     }
   }
 
