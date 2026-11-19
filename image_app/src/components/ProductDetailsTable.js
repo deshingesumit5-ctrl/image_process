@@ -1,5 +1,6 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { COLORS, FONT_FAMILY } from '../theme';
 
 const COMPANY_NAME = 'Ramchandra Dresses';
 const uniq = (arr) => [...new Set(arr.filter(Boolean))];
@@ -48,14 +49,14 @@ function buildCombinedRows(products) {
 
 function TableBox({ rows }) {
   return (
-    <View style={{ marginTop: 12, borderWidth: 1, borderColor: '#e2d6c4', borderRadius: 14, backgroundColor: '#fffaf2', overflow: 'hidden' }}>
+    <View style={styles.tableBox}>
       {rows.map(([label, value], i) => (
         <View
           key={label}
-          style={{ flexDirection: 'row', paddingVertical: 8, paddingHorizontal: 12, borderTopWidth: i ? 1 : 0, borderColor: '#e2d6c4' }}
+          style={[styles.row, i > 0 && styles.rowBorder]}
         >
-          <Text style={{ width: 120, fontWeight: '700', color: '#5b3a1e', fontSize: 13 }}>{label}</Text>
-          <Text style={{ flex: 1, color: '#1e293b', fontSize: 13 }}>{String(value)}</Text>
+          <Text style={styles.label}>{label}</Text>
+          <Text style={styles.value}>{String(value)}</Text>
         </View>
       ))}
     </View>
@@ -71,10 +72,50 @@ export function CombinedProductDetailsTable({ products }) {
   const rows = buildCombinedRows(products);
   if (!rows.length) {
     return (
-      <Text style={{ marginTop: 12, color: '#94a3b8', fontSize: 12, textAlign: 'center' }}>
+      <Text style={styles.emptyText}>
         No product data linked. Start from a product in the catalog to fill this table.
       </Text>
     );
   }
   return <TableBox rows={rows} />;
 }
+
+const styles = StyleSheet.create({
+  tableBox: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: COLORS.sheetBorder,
+    borderRadius: 14,
+    backgroundColor: COLORS.sheetInner,
+    overflow: 'hidden',
+  },
+  row: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  rowBorder: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.sheetBorder,
+  },
+  label: {
+    width: 120,
+    fontWeight: '700',
+    color: COLORS.sheetBrown,
+    fontSize: 12,
+    fontFamily: FONT_FAMILY,
+  },
+  value: {
+    flex: 1,
+    color: COLORS.textDark,
+    fontSize: 12,
+    fontFamily: FONT_FAMILY,
+  },
+  emptyText: {
+    marginTop: 12,
+    color: COLORS.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    fontFamily: FONT_FAMILY,
+  },
+});

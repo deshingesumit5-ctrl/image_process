@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -8,49 +8,59 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   View,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
-import { api, getApiBaseUrl } from "../api";
-import { useAuth } from "../auth";
-import { PRIMARY } from "../config";
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import ViewShot from 'react-native-view-shot';
+import { api } from '../api';
+import { useAuth } from '../auth';
 import {
   persistLocalImage,
   saveImagesToGallery,
   shareCaptionAndImages,
   buildProductCaption,
-} from "../share";
-import ProductSheet from "../components/ProductSheet";
-import ViewShot from "react-native-view-shot";
+} from '../share';
+import ProductSheet from '../components/ProductSheet';
+import {
+  Card,
+  Chip as UIChip,
+  EmptyState,
+  InfoCard,
+  PageContainer,
+  PillButton,
+  Stepper,
+} from '../components/ui';
+import { COLORS, FONT_FAMILY, RADII, SHADOWS, useResponsive } from '../theme';
 
-const CHIPS = ["All", "White", "Studio", "Wood", "Gradient", "Wall", "Custom"];
+const CHIPS = ['All', 'White', 'Studio', 'Wood', 'Gradient', 'Wall', 'Custom'];
 const STEPS = [
-  { title: "Original Image", subtitle: "(As Uploaded)" },
-  { title: "Cropped Product", subtitle: "(Background Removed)" },
-  { title: "Background Applied", subtitle: "(From Background Master)" },
-  { title: "Final Output", subtitle: "(Ready to Use)" },
+  { title: 'Original Images', subtitle: '(As Uploaded)' },
+  { title: 'Crop Product', subtitle: '(Background Removed)' },
+  { title: 'Select Background', subtitle: '(From Background Master)' },
+  { title: 'Final Output', subtitle: '(Ready to Use)' },
 ];
-const PREVIEW_W = Math.max(280, Dimensions.get("window").width - 32);
 
 // Laravel serves /storage/* without CORS headers. api/media/* goes through
 // Laravel, so the browser is allowed to read it.
 const corsSafe = (uri) =>
-  String(uri).replace(/^(https?:\/\/[^/]+)\/storage\//, "$1/api/media/");
+  String(uri).replace(/^(https?:\/\/[^/]+)\/storage\//, '$1/api/media/');
 
 export default function ProcessWizardScreen({ route, navigation }) {
   const { token, user } = useAuth();
+  const { isDesktop, processMaxWidth, contentWidth, outputCols } = useResponsive();
   const [step, setStep] = useState(route.params?.step || 1);
   const [assets, setAssets] = useState(route.params?.assets || []);
   const [originals, setOriginals] = useState(
-    (route.params?.assets || []).map((a) => a.uri),
+    (route.params?.assets || []).map((a) => a.uri)
   );
   const [orientation, setOrientation] = useState(
-    route.params?.orientation || "vertical",
+    route.params?.orientation || 'vertical'
   );
-  const [chip, setChip] = useState("All");
+  const [chip, setChip] = useState('All');
   const [backgrounds, setBackgrounds] = useState([]);
   const [customBackgrounds, setCustomBackgrounds] = useState([]);
   const [background, setBackground] = useState(null);
@@ -58,11 +68,11 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const [current, setCurrent] = useState(0);
   const [result, setResult] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [scale, setScale] = useState(0.92);
+  const [scale] = useState(0.92);
   const [cropOpen, setCropOpen] = useState(false);
   const productImageIds = route.params?.productImageIds || [];
   const [productList, setProductList] = useState([]);
-  const [productQuery, setProductQuery] = useState("");
+  const [productQuery] = useState('');
   const sheetRef = useRef(null);
 
   useEffect(() => {
@@ -118,13 +128,13 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const addMore = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert("Permission needed", "Allow photo access to select images.");
+      Alert.alert('Permission needed', 'Allow photo access to select images.');
       return;
     }
     const picked = await ImagePicker.launchImageLibraryAsync({
       allowsMultipleSelection: true,
       quality: 1,
-      mediaTypes: ["images"],
+      mediaTypes: ['images'],
     });
     await addPicked(picked);
   };
@@ -134,7 +144,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
     if (!perm.granted) return;
     const shot = await ImagePicker.launchCameraAsync({
       quality: 1,
-      mediaTypes: ["images"],
+      mediaTypes: ['images'],
     });
     await addPicked(shot);
   };
@@ -143,14 +153,14 @@ export default function ProcessWizardScreen({ route, navigation }) {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert(
-        "Permission needed",
-        "Allow photo access to select a background image.",
+        'Permission needed',
+        'Allow photo access to select a background image.'
       );
       return;
     }
     const picked = await ImagePicker.launchImageLibraryAsync({
       quality: 1,
-      mediaTypes: ["images"],
+      mediaTypes: ['images'],
     });
     if (picked.canceled || !picked.assets?.[0]?.uri) return;
 
@@ -164,56 +174,39 @@ export default function ProcessWizardScreen({ route, navigation }) {
     setCustomBackgrounds((prev) => [newBg, ...prev]);
     setBackground(newBg);
     Alert.alert(
-      "Background added",
-      "Custom background has been set and applied to current editing images.",
+      'Background added',
+      'Custom background has been set and applied to current editing images.'
     );
   };
 
   const editCustomBackground = async (bgToEdit) => {
     if (!bgToEdit?.isCustom) {
       Alert.alert(
-        "Preset Background",
-        "You can only edit custom user-added backgrounds.",
+        'Preset Background',
+        'You can only edit custom user-added backgrounds.'
       );
       return;
     }
     const picked = await ImagePicker.launchImageLibraryAsync({
       quality: 1,
-      mediaTypes: ["images"],
+      mediaTypes: ['images'],
     });
     if (picked.canceled || !picked.assets?.[0]?.uri) return;
 
     const localUri = await persistLocalImage(picked.assets[0].uri);
     const updatedBg = { ...bgToEdit, url: localUri };
     setCustomBackgrounds((prev) =>
-      prev.map((item) => (item.id === bgToEdit.id ? updatedBg : item)),
+      prev.map((item) => (item.id === bgToEdit.id ? updatedBg : item))
     );
     if (background?.id === bgToEdit.id) {
       setBackground(updatedBg);
     }
-    Alert.alert("Background updated", "Custom background has been updated.");
-  };
-
-  const mutateCurrent = async (actions) => {
-    const asset = assets[current];
-    if (!asset) return;
-    const localUri = await persistLocalImage(asset.uri);
-    const out = await ImageManipulator.manipulateAsync(localUri, actions, {
-      compress: 0.9,
-      format: ImageManipulator.SaveFormat.PNG,
-    });
-    setAssets((list) =>
-      list.map((item, i) =>
-        i === current
-          ? { ...item, uri: out.uri, width: out.width, height: out.height }
-          : item,
-      ),
-    );
+    Alert.alert('Background updated', 'Custom background has been updated.');
   };
 
   const openCrop = () => {
     if (!assets[current]) {
-      Alert.alert("Select an image", "Add an image before cropping.");
+      Alert.alert('Select an image', 'Add an image before cropping.');
       return;
     }
     setCropOpen(true);
@@ -233,7 +226,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
         };
         if (item.backgroundRemoved) next.cutoutUri = out.uri;
         return next;
-      }),
+      })
     );
     setCropOpen(false);
   };
@@ -242,8 +235,8 @@ export default function ProcessWizardScreen({ route, navigation }) {
     const asset = assets[current];
     if (!asset) {
       Alert.alert(
-        "Select an image",
-        "Add an image before removing the background.",
+        'Select an image',
+        'Add an image before removing the background.'
       );
       return;
     }
@@ -266,23 +259,23 @@ export default function ProcessWizardScreen({ route, navigation }) {
                 composited: false,
                 cropped: true,
               }
-            : item,
-        ),
+            : item
+        )
       );
       Alert.alert(
-        "Background removed",
-        "Clean cropped image is ready as a PNG with a transparent background.",
+        'Background removed',
+        'Clean cropped image is ready as a PNG with a transparent background.'
       );
     } catch (e) {
-      console.log("[BG] error", e);
-      if (Platform.OS === "web") {
+      console.log('[BG] error', e);
+      if (Platform.OS === 'web') {
         window.alert(
-          e.message || "Could not remove the background of this image.",
+          e.message || 'Could not remove the background of this image.'
         );
       } else {
         Alert.alert(
-          "Remove background failed",
-          e.message || "Could not remove the background of this image.",
+          'Remove background failed',
+          e.message || 'Could not remove the background of this image.'
         );
       }
     } finally {
@@ -314,7 +307,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const autoRemoveAll = async () => {
     if (busy) return;
     if (!assets.length) {
-      Alert.alert("Select an image", "Add at least one image first.");
+      Alert.alert('Select an image', 'Add at least one image first.');
       return;
     }
     setBusy(true);
@@ -322,11 +315,11 @@ export default function ProcessWizardScreen({ route, navigation }) {
       const updated = [...assets];
       for (let i = 0; i < updated.length; i += 1) {
         const item = updated[i];
-        if (item.backgroundRemoved) continue; // already done
+        if (item.backgroundRemoved) continue;
         const normalized = await ImageManipulator.manipulateAsync(
           item.uri,
           [],
-          { compress: 1, format: ImageManipulator.SaveFormat.PNG },
+          { compress: 1, format: ImageManipulator.SaveFormat.PNG }
         );
         const remote = await cutOutBackground(normalized.uri, token);
         const local = await persistLocalImage(remote);
@@ -341,11 +334,11 @@ export default function ProcessWizardScreen({ route, navigation }) {
         setAssets([...updated]);
       }
       setCurrent(0);
-      setStep(3); // go straight to background selection
+      setStep(3);
     } catch (e) {
-      const msg = e.message || "Could not remove the background of this image.";
-      if (Platform.OS === "web") window.alert(msg);
-      else Alert.alert("Remove background failed", msg);
+      const msg = e.message || 'Could not remove the background of this image.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Remove background failed', msg);
     } finally {
       setBusy(false);
     }
@@ -353,33 +346,32 @@ export default function ProcessWizardScreen({ route, navigation }) {
 
   const runProcess = async () => {
     if (!background) {
-      Alert.alert("Choose a background");
+      Alert.alert('Choose a background');
       return;
     }
     if (!assets.length) {
-      Alert.alert("Select images first");
+      Alert.alert('Select images first');
       return;
     }
     setBusy(true);
     const form = new FormData();
     if (!background.isCustom) {
-      form.append("background_id", String(background.id));
+      form.append('background_id', String(background.id));
     }
-    form.append("orientation", orientation);
-    form.append("apply_to_all", applyAll ? "1" : "0");
+    form.append('orientation', orientation);
+    form.append('apply_to_all', applyAll ? '1' : '0');
     for (let i = 0; i < assets.length; i += 1) {
       const asset = assets[i];
-      const src = asset.cutoutUri || asset.uri; // always use the clean cutout
+      const src = asset.cutoutUri || asset.uri;
       if (
         asset.productImageId &&
         !asset.cutoutUri &&
         asset.uri === originals[i]
       ) {
-        // untouched catalog image: let the server process it by ID
-        form.append("product_image_ids[]", String(asset.productImageId));
+        form.append('product_image_ids[]', String(asset.productImageId));
         continue;
       }
-      form.append("is_cutout[]", asset.cutoutUri ? "1" : "0");
+      form.append('is_cutout[]', asset.cutoutUri ? '1' : '0');
       await appendImageFile(form, src, i);
     }
     try {
@@ -389,7 +381,6 @@ export default function ProcessWizardScreen({ route, navigation }) {
       await applyResultsToAssets(rows, assets);
       setStep(4);
     } catch (e) {
-      // Fallback local processing
       setStep(4);
     } finally {
       setBusy(false);
@@ -398,7 +389,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
 
   const removeBackground = async () => {
     if (!background) {
-      Alert.alert("Choose a background");
+      Alert.alert('Choose a background');
       return;
     }
     const asset = assets[current];
@@ -407,11 +398,11 @@ export default function ProcessWizardScreen({ route, navigation }) {
     try {
       const form = new FormData();
       if (!background.isCustom) {
-        form.append("background_id", String(background.id));
+        form.append('background_id', String(background.id));
       }
-      form.append("orientation", orientation);
-      form.append("apply_to_all", "0");
-      form.append("is_cutout[0]", asset.cutoutUri ? "1" : "0");
+      form.append('orientation', orientation);
+      form.append('apply_to_all', '0');
+      form.append('is_cutout[0]', asset.cutoutUri ? '1' : '0');
       await appendImageFile(form, asset.cutoutUri || asset.uri, current);
       const res = await api.process(token, form);
       const rows = res.data || [];
@@ -420,21 +411,21 @@ export default function ProcessWizardScreen({ route, navigation }) {
       } else {
         setAssets((prev) =>
           prev.map((item, idx) =>
-            idx === current ? { ...item, composited: true } : item,
-          ),
+            idx === current ? { ...item, composited: true } : item
+          )
         );
       }
       Alert.alert(
-        "Background applied",
-        "Background applied successfully to current image.",
+        'Background applied',
+        'Background applied successfully to current image.'
       );
     } catch (e) {
       setAssets((prev) =>
         prev.map((item, idx) =>
-          idx === current ? { ...item, composited: true } : item,
-        ),
+          idx === current ? { ...item, composited: true } : item
+        )
       );
-      Alert.alert("Background applied", "Applied background preview to image.");
+      Alert.alert('Background applied', 'Applied background preview to image.');
     } finally {
       setBusy(false);
     }
@@ -442,7 +433,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
 
   const applyBgToAll = async () => {
     if (!background) {
-      Alert.alert("Choose a background");
+      Alert.alert('Choose a background');
       return;
     }
     if (busy) return;
@@ -452,11 +443,12 @@ export default function ProcessWizardScreen({ route, navigation }) {
       for (let i = 0; i < updated.length; i += 1) {
         const item = updated[i];
         const form = new FormData();
-        if (!background.isCustom)
-          form.append("background_id", String(background.id));
-        form.append("orientation", orientation);
-        form.append("apply_to_all", "0");
-        form.append("is_cutout[0]", item.cutoutUri ? "1" : "0");
+        if (!background.isCustom) {
+          form.append('background_id', String(background.id));
+        }
+        form.append('orientation', orientation);
+        form.append('apply_to_all', '0');
+        form.append('is_cutout[0]', item.cutoutUri ? '1' : '0');
         await appendImageFile(form, item.cutoutUri || item.uri, i);
         const res = await api.process(token, form);
         const url = res.data?.[0]?.url;
@@ -466,9 +458,9 @@ export default function ProcessWizardScreen({ route, navigation }) {
         setAssets([...updated]);
       }
       setResult(updated.map((a) => ({ url: a.uri })));
-      Alert.alert("Done", "Background applied to all images.");
+      Alert.alert('Done', 'Background applied to all images.');
     } catch (e) {
-      Alert.alert("Apply failed", e.message || "Could not apply background.");
+      Alert.alert('Apply failed', e.message || 'Could not apply background.');
     } finally {
       setBusy(false);
     }
@@ -482,15 +474,15 @@ export default function ProcessWizardScreen({ route, navigation }) {
     } catch (e) {}
     setAssets((list) =>
       list.map((item, i) =>
-        i === current ? { ...item, product: full } : item,
-      ),
+        i === current ? { ...item, product: full } : item
+      )
     );
-    // jump to the next image that has no product yet
     const next = assets.findIndex((a, i) => i !== current && !a.product);
     if (next >= 0) setCurrent(next);
   };
+
   const captureSheet = async () => {
-    if (!sheetRef.current) throw new Error("Page is not ready yet.");
+    if (!sheetRef.current) throw new Error('Page is not ready yet.');
     return await sheetRef.current.capture();
   };
 
@@ -498,9 +490,9 @@ export default function ProcessWizardScreen({ route, navigation }) {
     try {
       const uri = await captureSheet();
       await saveImagesToGallery([uri]);
-      Alert.alert("Saved", "Page saved to gallery.");
+      Alert.alert('Saved', 'Page saved to gallery.');
     } catch (e) {
-      Alert.alert("Save failed", e.message);
+      Alert.alert('Save failed', e.message);
     }
   };
 
@@ -509,23 +501,22 @@ export default function ProcessWizardScreen({ route, navigation }) {
       const uri = await captureSheet();
       const linked = assets.map((a) => a.product).filter(Boolean);
       const source = linked.length ? linked : products;
-      console.log("[SHARE] product sample", JSON.stringify(source[0]));
       let caption = source.length
         ? buildProductCaption(
             source,
-            user?.phone || user?.mobile || user?.contact || "",
+            user?.phone || user?.mobile || user?.contact || ''
           )
-        : "";
+        : '';
       if (!caption && productImageIds.length) {
         try {
           const payload = await api.captions(token, productImageIds);
           caption = payload.caption;
         } catch (e) {}
       }
-      if (!caption) caption = "Ramchandra Dresses";
+      if (!caption) caption = 'Ramchandra Dresses';
       await shareCaptionAndImages(caption, [uri]);
     } catch (e) {
-      Alert.alert("Share failed", e.message);
+      Alert.alert('Share failed', e.message);
     }
   };
 
@@ -547,42 +538,74 @@ export default function ProcessWizardScreen({ route, navigation }) {
     uri: item.url || item.uri,
     product: assets[i]?.product,
   }));
-  const previewH =
-    orientation === "horizontal" ? Math.round(PREVIEW_W * 0.72) : 300;
-  const showOverlay = Boolean(
-    background?.url && preview?.uri && !preview.composited,
+
+  const stepInfo = {
+    1: {
+      icon: 'image-outline',
+      title: 'Step 1: Original Images',
+      subtitle: 'Review selected images. You can add more images if required.',
+    },
+    2: {
+      icon: 'crop-outline',
+      title: 'Step 2: Crop Product',
+      subtitle: 'Crop the image, remove the background and refine the product.',
+    },
+    3: {
+      icon: 'images-outline',
+      title: 'Step 3: Select Background',
+      subtitle:
+        'Choose a background, set orientation and apply to selected or all images.',
+    },
+    4: {
+      icon: 'checkmark-done-outline',
+      title: 'Step 4: Final Output',
+      subtitle: 'Your processed images are ready.',
+    },
+  }[step];
+
+  const effectiveWidth = Math.min(contentWidth, processMaxWidth);
+  const step1Cols = isDesktop ? 4 : 2;
+  const step1Gap = 12;
+  const step1CardW = Math.floor(
+    (effectiveWidth - step1Gap * (step1Cols - 1)) / step1Cols
   );
 
-  const previewBox = (uri) => (
+  const outGap = 10;
+  const outCardW = Math.floor(
+    (effectiveWidth - outGap * (outputCols - 1)) / outputCols
+  );
+
+  const showOverlay = Boolean(
+    background?.url && preview?.uri && !preview.composited
+  );
+
+  const renderCompositePreview = (uri, height = 240) => (
     <View
-      style={{
-        width: PREVIEW_W,
-        height: previewH,
-        borderRadius: 16,
-        overflow: "hidden",
-        backgroundColor: "white",
-        alignSelf: "center",
-        borderWidth: 1,
-        borderColor: "#e2e8f0",
-      }}
+      style={[
+        styles.previewFrame,
+        {
+          height,
+          aspectRatio: orientation === 'horizontal' ? 1.25 : undefined,
+        },
+      ]}
     >
       {showOverlay ? (
         <>
           <Image
             source={{ uri: background.url }}
-            style={{ position: "absolute", width: "100%", height: "100%" }}
+            style={{ position: 'absolute', width: '100%', height: '100%' }}
             resizeMode="cover"
           />
           <Image
             source={{ uri }}
-            style={{ width: "100%", height: "100%", transform: [{ scale }] }}
+            style={{ width: '100%', height: '100%', transform: [{ scale }] }}
             resizeMode="contain"
           />
         </>
       ) : uri ? (
         <Image
           source={{ uri }}
-          style={{ width: "100%", height: "100%" }}
+          style={{ width: '100%', height: '100%' }}
           resizeMode="contain"
         />
       ) : null}
@@ -591,231 +614,305 @@ export default function ProcessWizardScreen({ route, navigation }) {
 
   return (
     <>
-      <ScrollView
-        contentContainerStyle={{
-          padding: 16,
-          paddingBottom: 60,
-          backgroundColor: "#f8fafc",
-        }}
-      >
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          {STEPS.map((item, i) => {
-            const n = i + 1;
-            const active = step === n;
-            return (
-              <Pressable
-                key={item.title}
-                onPress={() => setStep(n)}
-                style={{ alignItems: "center", flex: 1, paddingHorizontal: 4 }}
-              >
-                <View
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
-                    backgroundColor: active ? "#3b82f6" : "#c7d2fe",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Text style={{ color: "white", fontWeight: "700" }}>{n}</Text>
-                </View>
-                <Text
-                  style={{
-                    fontSize: 12,
-                    marginTop: 6,
-                    textAlign: "center",
-                    fontWeight: "800",
-                    color: active ? "#0f172a" : "#64748b",
-                  }}
-                >
-                  {item.title}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 10,
-                    textAlign: "center",
-                    color: "#64748b",
-                  }}
-                >
-                  {item.subtitle}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+      <PageContainer maxWidth={processMaxWidth}>
+        <Stepper
+          steps={STEPS}
+          currentStep={step}
+          onStepPress={(n) => setStep(n)}
+        />
 
+        <InfoCard
+          icon={stepInfo.icon}
+          title={stepInfo.title}
+          subtitle={stepInfo.subtitle}
+        />
+
+        {/* STEP 1 */}
         {step === 1 && (
-          <>
-            <Text style={{ fontWeight: "700", marginBottom: 8 }}>
-              {assets.length} images selected
-            </Text>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 8,
-                marginVertical: 8,
-              }}
-            >
-              {assets.map((a, idx) => (
-                <Pressable
-                  key={`${a.uri}-${idx}`}
-                  onPress={() => setCurrent(idx)}
-                >
-                  <Image
-                    source={{ uri: a.uri }}
-                    style={{
-                      width: 72,
-                      height: 72,
-                      borderRadius: 12,
-                      borderWidth: current === idx ? 3 : 0,
-                      borderColor: PRIMARY,
-                      backgroundColor: "#e2e8f0",
-                    }}
-                    resizeMode="cover"
-                  />
-                  {a.product?.design_number ? (
-                    <Text
-                      style={{
-                        position: "absolute",
-                        bottom: 4,
-                        left: 4,
-                        backgroundColor: "#5b3a1e",
-                        color: "white",
-                        fontSize: 10,
-                        paddingHorizontal: 6,
-                        borderRadius: 6,
-                        overflow: "hidden",
-                      }}
-                    >
-                      {a.product.design_number}
-                    </Text>
-                  ) : null}
-                </Pressable>
-              ))}
+          <View style={{ gap: 14 }}>
+            <View style={styles.rowBetween}>
+              <View style={styles.rowInline}>
+                <Ionicons name="layers-outline" size={20} color={COLORS.primary} />
+                <Text style={styles.sectionHeading}>
+                  {assets.length} Images Selected
+                </Text>
+              </View>
+              <View style={styles.rowInline}>
+                <PillButton
+                  label="Camera"
+                  icon="camera-outline"
+                  variant="outline"
+                  compact
+                  onPress={camera}
+                />
+                <PillButton
+                  label="+ Add More"
+                  variant="outline"
+                  compact
+                  onPress={addMore}
+                />
+              </View>
             </View>
-            {preview?.uri ? (
-              previewBox(preview.uri)
+
+            {assets.length === 0 ? (
+              <EmptyState
+                icon="images-outline"
+                title="No images selected yet"
+                subtitle="Use + Add More or Camera to select product photos."
+                actionLabel="+ Add More"
+                onAction={addMore}
+              />
             ) : (
-              <Text style={{ color: "#64748b", marginVertical: 16 }}>
-                No image selected yet. Use Add More or Camera.
-              </Text>
-            )}
-            {assets.length > 0 && (
-              <View
-                style={{
-                  backgroundColor: "white",
-                  borderRadius: 14,
-                  padding: 10,
-                  marginBottom: 10,
-                  borderWidth: 1,
-                  borderColor: "#e2e8f0",
-                }}
-              >
-                <Text style={{ fontWeight: "700", marginBottom: 4 }}>
-                  Link product to image {current + 1} of {assets.length}
-                </Text>
-                <Text
-                  style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}
-                >
-                  Linked: {assets[current]?.product?.design_number || "none"}
-                </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  {productList.map((p) => (
+              <View style={[styles.grid, { gap: step1Gap }]}>
+                {assets.map((a, idx) => {
+                  const selectedCard = current === idx;
+                  return (
                     <Pressable
-                      key={p.id}
-                      onPress={() => linkProduct(p)}
-                      style={{
-                        backgroundColor:
-                          assets[current]?.product?.id === p.id
-                            ? PRIMARY
-                            : "#e2e8f0",
-                        borderRadius: 14,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        marginRight: 8,
-                      }}
+                      key={`${a.uri}-${idx}`}
+                      onPress={() => setCurrent(idx)}
+                      style={[
+                        styles.step1Card,
+                        { width: step1CardW },
+                        selectedCard && styles.step1CardActive,
+                      ]}
                     >
-                      <Text
-                        style={{
-                          fontSize: 12,
-                          fontWeight: "600",
-                          color:
-                            assets[current]?.product?.id === p.id
-                              ? "white"
-                              : "#0f172a",
-                        }}
+                      <Image
+                        source={{ uri: a.uri }}
+                        style={styles.step1Img}
+                        resizeMode="cover"
+                      />
+                      <View
+                        style={[
+                          styles.topRightCheck,
+                          selectedCard
+                            ? styles.topRightCheckOn
+                            : styles.topRightCheckOff,
+                        ]}
                       >
-                        {p.design_number || p.name}
-                      </Text>
+                        <Ionicons
+                          name="checkmark"
+                          size={14}
+                          color={selectedCard ? '#FFFFFF' : COLORS.textLight}
+                        />
+                      </View>
+                      {a.product?.design_number ? (
+                        <View style={styles.designTag}>
+                          <Text style={styles.designTagText}>
+                            {a.product.design_number}
+                          </Text>
+                        </View>
+                      ) : null}
                     </Pressable>
-                  ))}
-                </ScrollView>
+                  );
+                })}
               </View>
             )}
-            <Row>
-              <Chip label="+ Add More" onPress={addMore} />
-              <Chip label="Camera" onPress={camera} />
-              <Chip
+
+            {assets.length > 0 && (
+              <Card>
+                <Text style={styles.subTitle}>
+                  Link product to image {current + 1} of {assets.length}
+                </Text>
+                <Text style={styles.caption}>
+                  Linked: {assets[current]?.product?.design_number || 'none'}
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8, marginTop: 10 }}
+                >
+                  {productList.map((p) => {
+                    const active = assets[current]?.product?.id === p.id;
+                    return (
+                      <UIChip
+                        key={p.id}
+                        label={p.design_number || p.name}
+                        active={active}
+                        onPress={() => linkProduct(p)}
+                      />
+                    );
+                  })}
+                </ScrollView>
+              </Card>
+            )}
+
+            <InfoCard
+              icon="information-circle-outline"
+              subtitle="Next: Crop the selected images and refine the product area."
+              style={{ marginBottom: 4 }}
+            />
+
+            <View style={styles.bottomBtnRow}>
+              <PillButton
                 label="Clear All"
+                icon="trash-outline"
+                variant="outline"
                 onPress={() => {
                   setAssets([]);
                   setOriginals([]);
                 }}
+                style={{ flex: 0.8 }}
               />
-              <Chip
-                label={busy ? "Removing background…" : "Next Step →"}
+              <PillButton
+                label={busy ? 'Removing background…' : 'Crop Images'}
+                icon="crop-outline"
+                iconRight="arrow-forward"
+                disabled={busy || !assets.length}
                 onPress={autoRemoveAll}
+                style={{ flex: 1.4 }}
               />
-            </Row>
-          </>
+            </View>
+          </View>
         )}
 
+        {/* STEP 2 */}
         {step === 2 && (
-          <>
+          <View style={{ gap: 14 }}>
             {preview?.uri ? (
-              preview.backgroundRemoved ? (
-                <View
-                  style={{
-                    width: PREVIEW_W,
-                    height: previewH,
-                    borderRadius: 16,
-                    overflow: "hidden",
-                    alignSelf: "center",
-                    borderWidth: 1,
-                    borderColor: "#e2e8f0",
-                  }}
-                >
-                  <Checkerboard>
+              <View style={styles.panelsWrap}>
+                {/* Left Panel: Crop & Adjust */}
+                <Card style={styles.panelCard} padded={false}>
+                  <View style={styles.panelTag}>
+                    <Text style={styles.panelTagText}>Crop & Adjust</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.panelBody,
+                      { height: isDesktop ? 340 : 250 },
+                    ]}
+                  >
                     <Image
-                      source={{ uri: preview.cutoutUri || preview.uri }}
-                      style={{ width: "100%", height: "100%" }}
+                      source={{ uri: preview.uri }}
+                      style={{ width: '100%', height: '100%' }}
                       resizeMode="contain"
                     />
-                  </Checkerboard>
+                  </View>
+                </Card>
+
+                <View style={styles.panelArrow}>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={16}
+                    color={COLORS.primary}
+                  />
                 </View>
-              ) : (
-                previewBox(preview.uri)
-              )
-            ) : null}
-            <Text style={{ marginVertical: 8, color: "#475569", fontSize: 13 }}>
-              Image {current + 1} of {assets.length}
-            </Text>
-            <Row>
-              <Chip label="Crop Image" onPress={openCrop} />
-              <Chip
-                label={busy ? "Removing…" : "Remove Background"}
-                onPress={removeCurrentBackground}
+
+                {/* Right Panel: Background Removed */}
+                <Card style={styles.panelCard} padded={false}>
+                  <View style={styles.panelTag}>
+                    <Text style={styles.panelTagText}>Background Removed</Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.panelBody,
+                      { height: isDesktop ? 340 : 250 },
+                    ]}
+                  >
+                    <Checkerboard>
+                      {preview.backgroundRemoved || preview.cutoutUri ? (
+                        <Image
+                          source={{ uri: preview.cutoutUri || preview.uri }}
+                          style={{ width: '100%', height: '100%' }}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={styles.checkerPlaceholder}>
+                          <Ionicons
+                            name="layers-outline"
+                            size={28}
+                            color={COLORS.primaryText}
+                          />
+                          <Text style={styles.checkerPlaceholderText}>
+                            Tap Remove Background
+                          </Text>
+                        </View>
+                      )}
+                    </Checkerboard>
+                  </View>
+                </Card>
+              </View>
+            ) : (
+              <EmptyState
+                icon="image-outline"
+                title="No image to edit"
+                subtitle="Go back to Step 1 and add at least one image."
+                actionLabel="Back to Step 1"
+                onAction={() => setStep(1)}
               />
-              <Chip
-                label="Reset Image"
+            )}
+
+            {/* Thumbnail Strip + Pager */}
+            <View style={styles.thumbStripRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, alignItems: 'center' }}
+                style={{ flex: 1 }}
+              >
+                {assets.map((a, idx) => (
+                  <Pressable
+                    key={`${a.uri}-${idx}`}
+                    onPress={() => setCurrent(idx)}
+                    style={[
+                      styles.miniThumb,
+                      current === idx && styles.miniThumbActive,
+                    ]}
+                  >
+                    <Image
+                      source={{ uri: a.uri }}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                ))}
+                <Pressable onPress={addMore} style={styles.miniAddTile}>
+                  <Ionicons name="add" size={20} color={COLORS.textDark} />
+                  <Text style={styles.miniAddText}>Add More</Text>
+                </Pressable>
+              </ScrollView>
+
+              <View style={styles.pagerRow}>
+                <Pressable
+                  onPress={() => setCurrent((c) => Math.max(0, c - 1))}
+                  style={styles.pagerCircle}
+                >
+                  <Ionicons name="chevron-back" size={16} color={COLORS.textDark} />
+                </Pressable>
+                <Text style={styles.pagerText}>
+                  {assets.length ? current + 1 : 0} of {assets.length}
+                </Text>
+                <Pressable
+                  onPress={() =>
+                    setCurrent((c) => Math.min(assets.length - 1, c + 1))
+                  }
+                  style={styles.pagerCircle}
+                >
+                  <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Tool Buttons Row */}
+            <View style={styles.toolsRow}>
+              <Pressable onPress={openCrop} style={[styles.toolBtn, styles.toolBtnActive]}>
+                <Ionicons name="crop-outline" size={20} color={COLORS.primary} />
+                <Text style={[styles.toolText, { color: COLORS.primaryText }]}>
+                  Crop
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={removeCurrentBackground}
+                disabled={busy}
+                style={styles.toolBtn}
+              >
+                <Ionicons name="layers-outline" size={20} color={COLORS.textDark} />
+                <Text style={styles.toolText} numberOfLines={2}>
+                  {busy ? 'Removing…' : 'Remove Background'}
+                </Text>
+              </Pressable>
+
+              <Pressable
                 onPress={() =>
                   setAssets((list) =>
                     list.map((item, i) =>
@@ -828,258 +925,529 @@ export default function ProcessWizardScreen({ route, navigation }) {
                             cutoutUri: null,
                             cropped: false,
                           }
-                        : item,
-                    ),
+                        : item
+                    )
                   )
                 }
-              />
-              <Chip label="Next Step &rarr;" onPress={() => setStep(3)} />
-            </Row>
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <View
-              style={{
-                flexDirection: "row",
-                flexWrap: "wrap",
-                gap: 8,
-                marginBottom: 12,
-              }}
-            >
-              {assets.map((a, i) => {
-                const overlay =
-                  background?.url &&
-                  !a.composited &&
-                  (applyAll || i === current);
-                return (
-                  <Pressable
-                    key={`${a.uri}-${i}`}
-                    onPress={() => setCurrent(i)}
-                    style={{
-                      width: 140,
-                      height: 190,
-                      borderRadius: 12,
-                      overflow: "hidden",
-                      backgroundColor: "white",
-                      borderWidth: current === i ? 3 : 1,
-                      borderColor: current === i ? PRIMARY : "#e2e8f0",
-                    }}
-                  >
-                    {overlay ? (
-                      <Image
-                        source={{ uri: background.url }}
-                        style={{
-                          position: "absolute",
-                          width: "100%",
-                          height: "100%",
-                        }}
-                        resizeMode="cover"
-                      />
-                    ) : null}
-                    <Image
-                      source={{ uri: a.uri }}
-                      style={{ width: "100%", height: "100%" }}
-                      resizeMode="contain"
-                    />
-                  </Pressable>
-                );
-              })}
-            </View>
-            <View
-              style={{
-                flexDirection: "row",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginVertical: 10,
-              }}
-            >
-              <Text style={{ fontWeight: "700" }}>
-                Selected: {background?.name || "None"}
-              </Text>
-              <Pressable
-                onPress={addCustomBackground}
-                style={{
-                  backgroundColor: "#00A86B",
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 12,
-                }}
+                style={styles.toolBtn}
               >
-                <Text
-                  style={{ color: "white", fontSize: 12, fontWeight: "600" }}
-                >
-                  + Add Background
-                </Text>
+                <Ionicons name="refresh-outline" size={20} color={COLORS.textDark} />
+                <Text style={styles.toolText}>Reset</Text>
               </Pressable>
             </View>
 
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={{ marginBottom: 12 }}
-            >
-              {CHIPS.map((c) => (
-                <Pressable
-                  key={c}
-                  onPress={() => setChip(c)}
-                  style={{
-                    backgroundColor: chip === c ? PRIMARY : "#e2e8f0",
-                    borderRadius: 20,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    marginRight: 8,
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: chip === c ? "white" : "#0f172a",
-                      fontWeight: "500",
-                    }}
-                  >
-                    {c}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {backgrounds.map((bg) => (
-                <View
-                  key={bg.id}
-                  style={{ marginRight: 10, alignItems: "center" }}
-                >
-                  <Pressable
-                    onPress={() => {
-                      setBackground(bg);
-                      setAssets((list) =>
-                        list.map((x) =>
-                          x.cutoutUri
-                            ? { ...x, uri: x.cutoutUri, composited: false }
-                            : x,
-                        ),
-                      );
-                    }}
-                    style={{
-                      borderWidth: background?.id === bg.id ? 3 : 1,
-                      borderColor:
-                        background?.id === bg.id ? PRIMARY : "#cbd5e1",
-                      borderRadius: 12,
-                      overflow: "hidden",
-                    }}
-                  >
-                    <Image
-                      source={{ uri: bg.url }}
-                      style={{
-                        width: 90,
-                        height: 120,
-                        backgroundColor: "#e2e8f0",
-                      }}
-                      resizeMode="cover"
-                    />
-                  </Pressable>
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      textAlign: "center",
-                      marginTop: 4,
-                      width: 90,
-                    }}
-                    numberOfLines={1}
-                  >
-                    {bg.name}
-                  </Text>
-                  {bg.isCustom && (
-                    <Pressable
-                      onPress={() => editCustomBackground(bg)}
-                      style={{ marginTop: 2 }}
-                    >
-                      <Text style={{ fontSize: 10, color: PRIMARY }}>
-                        Edit BG
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              ))}
-            </ScrollView>
-
-            <Pressable
-              onPress={() => setApplyAll(!applyAll)}
-              style={{
-                marginVertical: 12,
-                flexDirection: "row",
-                alignItems: "center",
-              }}
-            >
-              <Text style={{ fontSize: 14 }}>
-                Apply background to all images:{" "}
-              </Text>
-              <Text
-                style={{
-                  fontWeight: "700",
-                  color: applyAll ? PRIMARY : "#64748b",
-                }}
-              >
-                {applyAll ? "YES" : "NO"}
-              </Text>
-            </Pressable>
-
-            <Row>
-              <Chip
-                label="Horizontal BG"
-                onPress={() => setOrientation("horizontal")}
+            <View style={styles.bottomBtnRow}>
+              <PillButton
+                label="Previous"
+                icon="arrow-back"
+                variant="outline"
+                onPress={() => setStep(1)}
+                style={{ flex: 0.8 }}
               />
-              <Chip
-                label="Vertical BG"
-                onPress={() => setOrientation("vertical")}
+              <PillButton
+                label="Next: Select Background"
+                iconRight="arrow-forward"
+                onPress={() => setStep(3)}
+                style={{ flex: 1.5 }}
               />
-              <Chip
-                label={busy ? "Processing…" : "Apply BG to All Images"}
-                onPress={applyBgToAll}
-              />
-              <Chip label="Apply to Selected Only" onPress={removeBackground} />
-              <Chip label="Proceed to Edit &rarr;" onPress={() => setStep(2)} />
-              <Chip
-                label={
-                  busy ? "Processing…" : "Proceed to Output & Print Preview"
-                }
-                onPress={runProcess}
-              />
-            </Row>
-          </>
+            </View>
+          </View>
         )}
 
+        {/* STEP 3 */}
+        {step === 3 && (
+          <View style={{ gap: 14 }}>
+            <View style={[isDesktop && styles.step3DesktopGrid]}>
+              {/* Left Column Controls */}
+              <View style={[{ gap: 14 }, isDesktop && { flex: 1.15 }]}>
+                {/* Image Selector */}
+                <Card>
+                  <View style={[styles.rowBetween, { marginBottom: 10 }]}>
+                    <View style={styles.rowInline}>
+                      <Ionicons name="images-outline" size={18} color={COLORS.primary} />
+                      <Text style={styles.subTitle}>Select Image to Set Background</Text>
+                    </View>
+                    <View style={styles.greenCountBadge}>
+                      <Text style={styles.greenCountBadgeText}>
+                        Image {assets.length ? current + 1 : 0} of {assets.length}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.carouselRow}>
+                    <Pressable
+                      onPress={() => setCurrent((c) => Math.max(0, c - 1))}
+                      style={styles.pagerCircle}
+                    >
+                      <Ionicons name="chevron-back" size={16} color={COLORS.textDark} />
+                    </Pressable>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ gap: 10 }}
+                      style={{ flex: 1 }}
+                    >
+                      {assets.map((a, i) => {
+                        const active = current === i;
+                        const overlay =
+                          background?.url &&
+                          !a.composited &&
+                          (applyAll || i === current);
+                        return (
+                          <Pressable
+                            key={`${a.uri}-${i}`}
+                            onPress={() => setCurrent(i)}
+                            style={[
+                              styles.step3Thumb,
+                              active && styles.step3ThumbActive,
+                            ]}
+                          >
+                            {overlay ? (
+                              <Image
+                                source={{ uri: background.url }}
+                                style={{ position: 'absolute', width: '100%', height: '100%' }}
+                                resizeMode="cover"
+                              />
+                            ) : null}
+                            <Image
+                              source={{ uri: a.uri }}
+                              style={{ width: '100%', height: '100%' }}
+                              resizeMode="contain"
+                            />
+                            {active ? (
+                              <View style={styles.miniGreenCheck}>
+                                <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                              </View>
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                    <Pressable
+                      onPress={() =>
+                        setCurrent((c) => Math.min(assets.length - 1, c + 1))
+                      }
+                      style={styles.pagerCircle}
+                    >
+                      <Ionicons name="chevron-forward" size={16} color={COLORS.primary} />
+                    </Pressable>
+                  </View>
+                </Card>
+
+                {/* Apply Background To */}
+                <View>
+                  <View style={[styles.rowInline, { marginBottom: 8 }]}>
+                    <Ionicons name="layers-outline" size={17} color={COLORS.primary} />
+                    <Text style={styles.subTitle}>Apply Background To</Text>
+                  </View>
+                  <View style={styles.segmentRow}>
+                    <Pressable
+                      onPress={() => setApplyAll(false)}
+                      style={[
+                        styles.segmentCard,
+                        !applyAll && styles.segmentCardActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="image-outline"
+                        size={18}
+                        color={!applyAll ? COLORS.primary : COLORS.textMuted}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.segmentTitle,
+                            !applyAll && { color: COLORS.primaryText },
+                          ]}
+                        >
+                          Selected Image Only
+                        </Text>
+                        <Text style={styles.segmentSub}>(1 Image)</Text>
+                      </View>
+                      {!applyAll ? (
+                        <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />
+                      ) : null}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => setApplyAll(true)}
+                      style={[
+                        styles.segmentCard,
+                        applyAll && styles.segmentCardActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="layers-outline"
+                        size={18}
+                        color={applyAll ? COLORS.primary : COLORS.textMuted}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={[
+                            styles.segmentTitle,
+                            applyAll && { color: COLORS.primaryText },
+                          ]}
+                        >
+                          All Images
+                        </Text>
+                        <Text style={styles.segmentSub}>({assets.length} Images)</Text>
+                      </View>
+                      {applyAll ? (
+                        <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />
+                      ) : null}
+                    </Pressable>
+                  </View>
+                </View>
+
+                {/* Background Orientation */}
+                <View>
+                  <View style={[styles.rowInline, { marginBottom: 8 }]}>
+                    <Ionicons name="crop-outline" size={17} color={COLORS.primary} />
+                    <Text style={styles.subTitle}>
+                      Background Orientation{' '}
+                      <Text style={{ fontWeight: '500', color: COLORS.textMuted }}>
+                        (Image Size)
+                      </Text>
+                    </Text>
+                  </View>
+                  <View style={styles.segmentRow}>
+                    <Pressable
+                      onPress={() => setOrientation('vertical')}
+                      style={[
+                        styles.segmentCard,
+                        orientation === 'vertical' && styles.segmentCardActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="phone-portrait-outline"
+                        size={18}
+                        color={
+                          orientation === 'vertical' ? COLORS.primary : COLORS.textMuted
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.segmentTitle,
+                          orientation === 'vertical' && { color: COLORS.primaryText },
+                          { flex: 1 },
+                        ]}
+                      >
+                        Vertical (Portrait)
+                      </Text>
+                      {orientation === 'vertical' ? (
+                        <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />
+                      ) : null}
+                    </Pressable>
+
+                    <Pressable
+                      onPress={() => setOrientation('horizontal')}
+                      style={[
+                        styles.segmentCard,
+                        orientation === 'horizontal' && styles.segmentCardActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="phone-landscape-outline"
+                        size={18}
+                        color={
+                          orientation === 'horizontal' ? COLORS.primary : COLORS.textMuted
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.segmentTitle,
+                          orientation === 'horizontal' && { color: COLORS.primaryText },
+                          { flex: 1 },
+                        ]}
+                      >
+                        Horizontal (Landscape)
+                      </Text>
+                      {orientation === 'horizontal' ? (
+                        <Ionicons name="checkmark-circle" size={18} color={COLORS.primary} />
+                      ) : null}
+                    </Pressable>
+                  </View>
+                </View>
+
+                {/* Choose Background */}
+                <Card>
+                  <View style={[styles.rowBetween, { marginBottom: 10 }]}>
+                    <View style={styles.rowInline}>
+                      <Ionicons name="layers-outline" size={18} color={COLORS.primary} />
+                      <Text style={styles.subTitle}>
+                        Choose Background{background?.name ? `: ${background.name}` : ''}
+                      </Text>
+                    </View>
+                    <PillButton
+                      label="Upload from Gallery"
+                      icon="cloud-upload-outline"
+                      variant="outline"
+                      compact
+                      onPress={addCustomBackground}
+                    />
+                  </View>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 8, marginBottom: 12 }}
+                  >
+                    {CHIPS.map((c) => (
+                      <UIChip
+                        key={c}
+                        label={c}
+                        active={chip === c}
+                        onPress={() => setChip(c)}
+                      />
+                    ))}
+                  </ScrollView>
+
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ gap: 10 }}
+                  >
+                    {backgrounds.map((bg) => {
+                      const active = background?.id === bg.id;
+                      return (
+                        <View key={bg.id} style={{ alignItems: 'center', width: 92 }}>
+                          <Pressable
+                            onPress={() => {
+                              setBackground(bg);
+                              setAssets((list) =>
+                                list.map((x) =>
+                                  x.cutoutUri
+                                    ? { ...x, uri: x.cutoutUri, composited: false }
+                                    : x
+                                )
+                              );
+                            }}
+                            style={[
+                              styles.bgSwatch,
+                              active && styles.bgSwatchActive,
+                            ]}
+                          >
+                            <Image
+                              source={{ uri: bg.url }}
+                              style={{ width: '100%', height: '100%' }}
+                              resizeMode="cover"
+                            />
+                            {active ? (
+                              <View style={styles.miniGreenCheck}>
+                                <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                              </View>
+                            ) : null}
+                          </Pressable>
+                          <Text style={styles.bgName} numberOfLines={1}>
+                            {bg.name}
+                          </Text>
+                          {bg.isCustom ? (
+                            <Pressable onPress={() => editCustomBackground(bg)}>
+                              <Text style={styles.editBgLink}>Edit BG</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </ScrollView>
+                </Card>
+              </View>
+
+              {/* Right Column Preview + Apply */}
+              <View style={[{ gap: 12 }, isDesktop && { flex: 0.95 }]}>
+                <Card>
+                  <View style={[styles.rowInline, { marginBottom: 12 }]}>
+                    <Ionicons name="eye-outline" size={18} color={COLORS.primary} />
+                    <Text style={styles.subTitle}>
+                      Preview – Selected Image ({assets.length ? current + 1 : 0})
+                    </Text>
+                  </View>
+
+                  <View style={styles.previewPairRow}>
+                    <View style={styles.previewCol}>
+                      <View style={styles.previewBadgeMuted}>
+                        <Text style={styles.previewBadgeMutedText}>
+                          Cropped Product
+                        </Text>
+                      </View>
+                      <View style={styles.previewFrame}>
+                        <Checkerboard>
+                          {preview?.cutoutUri || preview?.uri ? (
+                            <Image
+                              source={{ uri: preview.cutoutUri || preview.uri }}
+                              style={{ width: '100%', height: '100%' }}
+                              resizeMode="contain"
+                            />
+                          ) : null}
+                        </Checkerboard>
+                      </View>
+                    </View>
+
+                    <View style={styles.panelArrow}>
+                      <Ionicons
+                        name="arrow-forward"
+                        size={16}
+                        color={COLORS.primary}
+                      />
+                    </View>
+
+                    <View style={styles.previewCol}>
+                      <View style={styles.previewBadgeGreen}>
+                        <Text style={styles.previewBadgeGreenText}>
+                          With Selected Background
+                        </Text>
+                      </View>
+                      {renderCompositePreview(preview?.uri, 210)}
+                    </View>
+                  </View>
+
+                  <View style={[styles.bottomBtnRow, { marginTop: 14 }]}>
+                    <PillButton
+                      label="Apply to Selected"
+                      variant="soft"
+                      compact
+                      disabled={busy}
+                      onPress={removeBackground}
+                      style={{ flex: 1 }}
+                    />
+                    <PillButton
+                      label={busy ? 'Processing…' : 'Apply to All'}
+                      variant="soft"
+                      compact
+                      disabled={busy}
+                      onPress={applyBgToAll}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                </Card>
+              </View>
+            </View>
+
+            <View style={styles.bottomBtnRow}>
+              <PillButton
+                label="Previous"
+                icon="arrow-back"
+                variant="outline"
+                onPress={() => setStep(2)}
+                style={{ flex: 0.8 }}
+              />
+              <PillButton
+                label={busy ? 'Processing…' : 'Next: Final Output'}
+                iconRight="arrow-forward"
+                disabled={busy}
+                onPress={runProcess}
+                style={{ flex: 1.5 }}
+              />
+            </View>
+          </View>
+        )}
+
+        {/* STEP 4 */}
         {step === 4 && (
-          <>
-            <Text style={{ fontWeight: "700", marginBottom: 12 }}>
-              Final Page
-            </Text>
-            <View style={{ width: "100%", maxWidth: 480, alignSelf: "center" }}>
+          <View style={{ gap: 16 }}>
+            {/* Processed Images Grid */}
+            {sheetItems.length > 0 ? (
+              <View style={[styles.grid, { gap: outGap }]}>
+                {sheetItems.map((it, idx) => (
+                  <Card
+                    key={`${it.uri}-${idx}`}
+                    style={[styles.outputCard, { width: outCardW }]}
+                    padded={false}
+                  >
+                    <Image
+                      source={{ uri: it.uri }}
+                      style={styles.outputImg}
+                      resizeMode="cover"
+                    />
+                    <View style={styles.outputActions}>
+                      <Pressable
+                        onPress={() =>
+                          saveImagesToGallery([it.uri]).then(() =>
+                            Alert.alert('Saved', 'Image saved to gallery.')
+                          ).catch((e) => Alert.alert('Save failed', e.message))
+                        }
+                        style={styles.outputIconBtn}
+                      >
+                        <Ionicons
+                          name="download-outline"
+                          size={16}
+                          color={COLORS.primary}
+                        />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          const p = it.product;
+                          const cap = p
+                            ? buildProductCaption([p], user?.phone || '')
+                            : 'Ramchandra Dresses';
+                          shareCaptionAndImages(cap, [it.uri]).catch((e) =>
+                            Alert.alert('Share failed', e.message)
+                          );
+                        }}
+                        style={styles.outputIconBtn}
+                      >
+                        <Ionicons
+                          name="logo-whatsapp"
+                          size={16}
+                          color={COLORS.primary}
+                        />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setCurrent(idx);
+                          setStep(2);
+                        }}
+                        style={styles.outputIconBtn}
+                      >
+                        <Ionicons
+                          name="create-outline"
+                          size={16}
+                          color={COLORS.textDark}
+                        />
+                      </Pressable>
+                    </View>
+                  </Card>
+                ))}
+              </View>
+            ) : null}
+
+            {/* Combined Catalog Sheet */}
+            <Text style={styles.sectionHeading}>Catalog Share Sheet</Text>
+            <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center' }}>
               <ViewShot
                 ref={sheetRef}
                 collapsable={false}
-                options={{ format: "png", quality: 1 }}
+                options={{ format: 'png', quality: 1 }}
                 style={{
-                  width: "100%",
-                  backgroundColor: "#f8fafc",
+                  width: '100%',
+                  backgroundColor: COLORS.bg,
                   paddingVertical: 4,
                 }}
               >
                 <ProductSheet items={sheetItems} />
               </ViewShot>
             </View>
-            <View style={{ height: 24 }} />
-            <Row>
-              <Chip
+
+            <View style={styles.step4BtnRow}>
+              <PillButton
                 label="Save Page to Gallery"
+                icon="download-outline"
+                variant="outline"
                 onPress={saveResultsToGallery}
+                style={{ flex: 1, minWidth: 160 }}
               />
-              <Chip label="Share Page on WhatsApp" onPress={shareOnWhatsApp} />
-              <Chip
+              <PillButton
+                label="Share on WhatsApp"
+                icon="logo-whatsapp"
+                onPress={shareOnWhatsApp}
+                style={{ flex: 1, minWidth: 160 }}
+              />
+              <PillButton
                 label="Print Preview"
+                icon="print-outline"
+                variant="soft"
                 onPress={() =>
-                  navigation.navigate("PrintPreview", {
+                  navigation.navigate('PrintPreview', {
                     images: sheetItems.map((it) => ({
                       url: it.uri,
                       product: it.product,
@@ -1087,11 +1455,13 @@ export default function ProcessWizardScreen({ route, navigation }) {
                     products,
                   })
                 }
+                style={{ flex: 1, minWidth: 150 }}
               />
-            </Row>
-          </>
+            </View>
+          </View>
         )}
-      </ScrollView>
+      </PageContainer>
+
       <Modal
         visible={cropOpen}
         animationType="slide"
@@ -1111,96 +1481,56 @@ export default function ProcessWizardScreen({ route, navigation }) {
   );
 }
 
-function Chip({ label, onPress }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        backgroundColor: PRIMARY,
-        alignSelf: "flex-start",
-        borderRadius: 20,
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        marginTop: 6,
-      }}
-    >
-      <Text style={{ color: "white", fontWeight: "600", fontSize: 12 }}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-function Row({ children }) {
-  return (
-    <View
-      style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}
-    >
-      {children}
-    </View>
-  );
-}
-
 async function appendImageFile(form, uri, index) {
-  if (Platform.OS === "web") {
+  if (Platform.OS === 'web') {
     const response = await fetch(uri);
-    if (!response.ok) throw new Error("Could not read this image for upload.");
+    if (!response.ok) throw new Error('Could not read this image for upload.');
     const blob = await response.blob();
-    if (!blob.type || !blob.type.startsWith("image/")) {
-      console.log("[UPLOAD] not an image", uri, blob.type, blob.size);
-      throw new Error("Selected file is not a valid image.");
+    if (!blob.type || !blob.type.startsWith('image/')) {
+      console.log('[UPLOAD] not an image', uri, blob.type, blob.size);
+      throw new Error('Selected file is not a valid image.');
     }
     const type = blob.type;
-    const ext = type.includes("png")
-      ? "png"
-      : type.includes("webp")
-        ? "webp"
-        : "jpg";
+    const ext = type.includes('png')
+      ? 'png'
+      : type.includes('webp')
+        ? 'webp'
+        : 'jpg';
     form.append(
-      "images[]",
-      new File([blob], `image-${index}.${ext}`, { type }),
+      'images[]',
+      new File([blob], `image-${index}.${ext}`, { type })
     );
     return;
   }
-  const png = String(uri).toLowerCase().includes(".png");
+  const png = String(uri).toLowerCase().includes('.png');
   try {
-    // New Expo fetch needs a real file object, not { uri, name, type }
-    const { File: FsFile } = require("expo-file-system");
-    form.append("images[]", new FsFile(uri));
+    const { File: FsFile } = require('expo-file-system');
+    form.append('images[]', new FsFile(uri));
   } catch (e) {
-    console.log("[UPLOAD] File class failed, using legacy part:", e?.message);
-    form.append("images[]", {
+    console.log('[UPLOAD] File class failed, using legacy part:', e?.message);
+    form.append('images[]', {
       uri,
       name: png ? `image-${index}.png` : `image-${index}.jpg`,
-      type: png ? "image/png" : "image/jpeg",
+      type: png ? 'image/png' : 'image/jpeg',
     });
   }
 }
-function loadHtmlImage(uri) {
-  return new Promise((resolve, reject) => {
-    const img = new window.Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Could not read this image."));
-    if (!String(uri).startsWith("blob:") && !String(uri).startsWith("data:")) {
-      img.crossOrigin = "anonymous";
-    }
-    img.src = uri;
-  });
-}
+
 async function cutOutBackground(uri, token) {
   const form = new FormData();
   await appendImageFile(form, uri, 0);
 
   const res = await api.removeBackground(token, form);
-  console.log("[BG] response", JSON.stringify(res));
+  console.log('[BG] response', JSON.stringify(res));
   const url = res.url || res.data?.url || res.data?.[0]?.url;
-  if (!url) throw new Error("No image returned from server.");
+  if (!url) throw new Error('No image returned from server.');
   return url;
 }
 
 function Checkerboard({ children, style }) {
   const CELL = 16;
-  const cols = Math.ceil(PREVIEW_W / CELL);
-  const rows = Math.ceil(300 / CELL);
+  const cols = 16;
+  const rows = 18;
   const cells = [];
   for (let r = 0; r < rows; r += 1) {
     for (let c = 0; c < cols; c += 1) {
@@ -1209,14 +1539,14 @@ function Checkerboard({ children, style }) {
           <View
             key={`${r}-${c}`}
             style={{
-              position: "absolute",
+              position: 'absolute',
               left: `${(c / cols) * 100}%`,
               top: `${(r / rows) * 100}%`,
               width: `${100 / cols}%`,
               height: `${100 / rows}%`,
-              backgroundColor: "#d5dbe3",
+              backgroundColor: '#E2E8E2',
             }}
-          />,
+          />
         );
       }
     }
@@ -1224,7 +1554,7 @@ function Checkerboard({ children, style }) {
   return (
     <View
       style={[
-        { flex: 1, backgroundColor: "#f4f6f8", overflow: "hidden" },
+        { flex: 1, width: '100%', height: '100%', backgroundColor: '#F5F7F5', overflow: 'hidden' },
         style,
       ]}
     >
@@ -1235,11 +1565,11 @@ function Checkerboard({ children, style }) {
 }
 
 const CROP_RATIOS = [
-  { id: "custom", label: "Custom" },
-  { id: "original", label: "Original" },
-  { id: "full", label: "Full screen" },
-  { id: "4:3", label: "4:3" },
-  { id: "1:1", label: "1:1" },
+  { id: 'custom', label: 'Custom' },
+  { id: 'original', label: 'Original' },
+  { id: 'full', label: 'Full screen' },
+  { id: '4:3', label: '4:3' },
+  { id: '1:1', label: '1:1' },
 ];
 
 function clampCrop(rect, min = 0.08) {
@@ -1268,8 +1598,8 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   const stageRef = useRef(null);
   const stagePage = useRef({ x: 0, y: 0, w: 0, h: 0 });
   const [stage, setStage] = useState({
-    w: Dimensions.get("window").width,
-    h: Math.round(Dimensions.get("window").height * 0.5),
+    w: Dimensions.get('window').width,
+    h: Math.round(Dimensions.get('window').height * 0.5),
   });
   const [natural, setNatural] = useState({
     w: imageWidth || 0,
@@ -1277,8 +1607,8 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
     uri,
   });
   const [rect, setRect] = useState({ x: 0.08, y: 0.08, w: 0.84, h: 0.84 });
-  const [aspect, setAspect] = useState("custom");
-  const [tool, setTool] = useState("crop");
+  const [aspect, setAspect] = useState('custom');
+  const [tool, setTool] = useState('crop');
   const [busy, setBusy] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -1298,9 +1628,10 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
         if (alive) setNatural({ w, h, uri });
       },
       () => {
-        if (alive && imageWidth && imageHeight)
+        if (alive && imageWidth && imageHeight) {
           setNatural({ w: imageWidth, h: imageHeight, uri });
-      },
+        }
+      }
     );
     return () => {
       alive = false;
@@ -1310,9 +1641,9 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   const frame = useMemo(() => {
     const natW = natural.w || 1;
     const natH = natural.h || 1;
-    const scale = Math.min(stage.w / natW, stage.h / natH);
-    const w = natW * scale;
-    const h = natH * scale;
+    const s = Math.min(stage.w / natW, stage.h / natH);
+    const w = natW * s;
+    const h = natH * s;
     return { x: (stage.w - w) / 2, y: (stage.h - h) / 2, w, h };
   }, [natural, stage]);
   frameRef.current = frame;
@@ -1328,16 +1659,16 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
     const nat = naturalRef.current;
     setAspect(id);
     if (!nat.w || !nat.h) return;
-    if (id === "custom") return;
-    if (id === "full" || id === "original") {
+    if (id === 'custom') return;
+    if (id === 'full' || id === 'original') {
       remember(
-        id === "full"
+        id === 'full'
           ? { x: 0, y: 0, w: 1, h: 1 }
-          : maxRectForPixelAspect(nat.w / nat.h, nat.w, nat.h),
+          : maxRectForPixelAspect(nat.w / nat.h, nat.w, nat.h)
       );
       return;
     }
-    const pixelAspect = id === "1:1" ? 1 : 4 / 3;
+    const pixelAspect = id === '1:1' ? 1 : 4 / 3;
     remember(maxRectForPixelAspect(pixelAspect, nat.w, nat.h));
   };
 
@@ -1368,14 +1699,14 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
       const out = await ImageManipulator.manipulateAsync(
         natural.uri,
         [{ rotate: 90 }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
+        { compress: 1, format: ImageManipulator.SaveFormat.PNG }
       );
       remember(
         { x: 0, y: 0, w: 1, h: 1 },
-        { w: out.width || natural.h, h: out.height || natural.w, uri: out.uri },
+        { w: out.width || natural.h, h: out.height || natural.w, uri: out.uri }
       );
     } catch (e) {
-      Alert.alert("Rotate failed", e.message || "Could not rotate this image.");
+      Alert.alert('Rotate failed', e.message || 'Could not rotate this image.');
     }
   };
 
@@ -1389,8 +1720,8 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   const pan = useMemo(
     () =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => aspectRef.current !== "full",
-        onMoveShouldSetPanResponder: () => aspectRef.current !== "full",
+        onStartShouldSetPanResponder: () => aspectRef.current !== 'full',
+        onMoveShouldSetPanResponder: () => aspectRef.current !== 'full',
         onPanResponderGrant: (e) => {
           measureStage();
           const frameNow = frameRef.current;
@@ -1413,7 +1744,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
             l: { x: box.x, y: box.y + box.h / 2 },
             r: { x: box.x + box.w, y: box.y + box.h / 2 },
           };
-          let type = "move";
+          let type = 'move';
           Object.entries(handles).some(([name, point]) => {
             if (Math.abs(px - point.x) < 26 && Math.abs(py - point.y) < 26) {
               type = name;
@@ -1432,36 +1763,36 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           const dx = (px - start.px) / frameNow.w;
           const dy = (py - start.py) / frameNow.h;
           const base = { ...start.rect };
-          if (start.type === "move") {
+          if (start.type === 'move') {
             setRect(clampCrop({ ...base, x: base.x + dx, y: base.y + dy }));
             return;
           }
           let { x, y, w, h } = base;
-          if (start.type.includes("l")) {
+          if (start.type.includes('l')) {
             x += dx;
             w -= dx;
           }
-          if (start.type.includes("r") || start.type === "r") {
+          if (start.type.includes('r') || start.type === 'r') {
             w += dx;
           }
-          if (start.type.includes("t")) {
+          if (start.type.includes('t')) {
             y += dy;
             h -= dy;
           }
-          if (start.type.includes("b") || start.type === "b") {
+          if (start.type.includes('b') || start.type === 'b') {
             h += dy;
           }
           const mode = aspectRef.current;
           const nat = naturalRef.current;
           if (
-            mode !== "custom" &&
-            mode !== "full" &&
+            mode !== 'custom' &&
+            mode !== 'full' &&
             nat.w &&
             nat.h &&
             w > 0.08
           ) {
             const pixelAspect =
-              mode === "1:1" ? 1 : mode === "4:3" ? 4 / 3 : nat.w / nat.h;
+              mode === '1:1' ? 1 : mode === '4:3' ? 4 / 3 : nat.w / nat.h;
             const rel = pixelAspect * (nat.h / nat.w);
             h = w / Math.max(rel, 0.01);
           }
@@ -1481,14 +1812,14 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           pan.start = null;
         },
       }),
-    [],
+    []
   );
 
   const save = async () => {
     const nat = naturalRef.current;
     const crop = rectRef.current;
     if (!nat.w || !nat.h) {
-      Alert.alert("Crop failed", "Image size is not ready yet.");
+      Alert.alert('Crop failed', 'Image size is not ready yet.');
       return;
     }
     setBusy(true);
@@ -1497,20 +1828,20 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
       const originY = Math.max(0, Math.round(crop.y * nat.h));
       const width = Math.max(
         1,
-        Math.min(nat.w - originX, Math.round(crop.w * nat.w)),
+        Math.min(nat.w - originX, Math.round(crop.w * nat.w))
       );
       const height = Math.max(
         1,
-        Math.min(nat.h - originY, Math.round(crop.h * nat.h)),
+        Math.min(nat.h - originY, Math.round(crop.h * nat.h))
       );
       const out = await ImageManipulator.manipulateAsync(
         nat.uri,
         [{ crop: { originX, originY, width, height } }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG },
+        { compress: 1, format: ImageManipulator.SaveFormat.PNG }
       );
       onDone(out);
     } catch (e) {
-      Alert.alert("Crop failed", e.message || "Could not save this crop.");
+      Alert.alert('Crop failed', e.message || 'Could not save this crop.');
     } finally {
       setBusy(false);
     }
@@ -1526,22 +1857,23 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   return (
     <View
       style={{
-        height: Dimensions.get("window").height,
-        backgroundColor: "#000",
-        overflow: "hidden",
+        height: Dimensions.get('window').height,
+        backgroundColor: '#0B1610',
+        overflow: 'hidden',
       }}
     >
       <Text
         style={{
-          color: "white",
-          textAlign: "center",
+          color: 'white',
+          textAlign: 'center',
           fontSize: 18,
-          fontWeight: "600",
+          fontWeight: '700',
           paddingTop: 14,
           paddingBottom: 6,
+          fontFamily: FONT_FAMILY,
         }}
       >
-        Crop
+        Crop Image
       </Text>
       <View
         ref={stageRef}
@@ -1552,7 +1884,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
         <Image
           source={{ uri: natural.uri }}
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: frame.x,
             top: frame.y,
             width: frame.w,
@@ -1562,108 +1894,108 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
         />
         <View
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: 0,
             top: 0,
             right: 0,
             height: Math.max(0, box.top),
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: 'rgba(0,0,0,0.55)',
           }}
         />
         <View
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: 0,
             top: box.top + box.height,
             right: 0,
             bottom: 0,
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: 'rgba(0,0,0,0.55)',
           }}
         />
         <View
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: 0,
             top: box.top,
             width: Math.max(0, box.left),
             height: box.height,
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: 'rgba(0,0,0,0.55)',
           }}
         />
         <View
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: box.left + box.width,
             top: box.top,
             right: 0,
             height: box.height,
-            backgroundColor: "rgba(0,0,0,0.55)",
+            backgroundColor: 'rgba(0,0,0,0.55)',
           }}
         />
         <View
           style={{
-            position: "absolute",
+            position: 'absolute',
             left: box.left,
             top: box.top,
             width: box.width,
             height: box.height,
-            borderWidth: 1,
-            borderColor: "rgba(255,255,255,0.85)",
-            pointerEvents: "none",
+            borderWidth: 1.5,
+            borderColor: COLORS.primaryBorder,
+            pointerEvents: 'none',
           }}
         >
           <View
             style={{
-              position: "absolute",
-              left: "33%",
+              position: 'absolute',
+              left: '33%',
               top: 0,
               bottom: 0,
               width: 1,
-              backgroundColor: "rgba(255,255,255,0.45)",
+              backgroundColor: 'rgba(255,255,255,0.45)',
             }}
           />
           <View
             style={{
-              position: "absolute",
-              left: "66%",
+              position: 'absolute',
+              left: '66%',
               top: 0,
               bottom: 0,
               width: 1,
-              backgroundColor: "rgba(255,255,255,0.45)",
+              backgroundColor: 'rgba(255,255,255,0.45)',
             }}
           />
           <View
             style={{
-              position: "absolute",
-              top: "33%",
+              position: 'absolute',
+              top: '33%',
               left: 0,
               right: 0,
               height: 1,
-              backgroundColor: "rgba(255,255,255,0.45)",
+              backgroundColor: 'rgba(255,255,255,0.45)',
             }}
           />
           <View
             style={{
-              position: "absolute",
-              top: "66%",
+              position: 'absolute',
+              top: '66%',
               left: 0,
               right: 0,
               height: 1,
-              backgroundColor: "rgba(255,255,255,0.45)",
+              backgroundColor: 'rgba(255,255,255,0.45)',
             }}
           />
-          {["tl", "tr", "bl", "br"].map((corner) => (
+          {['tl', 'tr', 'bl', 'br'].map((corner) => (
             <View
               key={corner}
               style={{
-                position: "absolute",
+                position: 'absolute',
                 width: 22,
                 height: 22,
-                borderColor: "white",
-                ...(corner.includes("t")
+                borderColor: '#FFFFFF',
+                ...(corner.includes('t')
                   ? { top: -2, borderTopWidth: 4 }
                   : { bottom: -2, borderBottomWidth: 4 }),
-                ...(corner.includes("l")
+                ...(corner.includes('l')
                   ? { left: -2, borderLeftWidth: 4 }
                   : { right: -2, borderRightWidth: 4 }),
               }}
@@ -1675,9 +2007,9 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
       <View style={{ flexShrink: 0, paddingBottom: 14, paddingTop: 6 }}>
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             paddingHorizontal: 22,
             marginBottom: 12,
           }}
@@ -1692,15 +2024,15 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
             <Ionicons name="refresh" size={22} color="white" />
           </Pressable>
           <Pressable
-            onPress={() => applyAspect("original")}
+            onPress={() => applyAspect('original')}
             style={{
-              backgroundColor: "#2a2a2a",
+              backgroundColor: '#1E2D24',
               borderRadius: 18,
               paddingHorizontal: 18,
               paddingVertical: 8,
             }}
           >
-            <Text style={{ color: "white", fontWeight: "600" }}>Auto</Text>
+            <Text style={{ color: 'white', fontWeight: '600' }}>Auto</Text>
           </Pressable>
           <Ionicons name="crop" size={22} color="white" />
         </View>
@@ -1716,26 +2048,28 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
                 key={item.id}
                 onPress={() => applyAspect(item.id)}
                 style={{
-                  width: 72,
+                  width: 76,
                   height: 58,
-                  borderRadius: 12,
-                  backgroundColor: active ? "#f5c400" : "#2a2a2a",
-                  alignItems: "center",
-                  justifyContent: "center",
+                  borderRadius: 14,
+                  backgroundColor: active ? COLORS.primary : '#1E2D24',
+                  borderWidth: 1,
+                  borderColor: active ? COLORS.primaryBorder : 'transparent',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                   marginRight: 8,
                 }}
               >
                 <Ionicons
                   name="crop-outline"
                   size={18}
-                  color={active ? "#111" : "#ddd"}
+                  color="#FFFFFF"
                 />
                 <Text
                   style={{
-                    color: active ? "#111" : "white",
+                    color: '#FFFFFF',
                     fontSize: 11,
                     marginTop: 4,
-                    fontWeight: "600",
+                    fontWeight: '600',
                   }}
                 >
                   {item.label}
@@ -1746,9 +2080,9 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
         </ScrollView>
         <View
           style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "space-between",
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             paddingHorizontal: 18,
             marginTop: 16,
           }}
@@ -1756,23 +2090,23 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           <Pressable onPress={onCancel} style={{ padding: 8 }}>
             <Ionicons name="close" size={28} color="white" />
           </Pressable>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 18 }}>
-            <Pressable onPress={() => setTool("crop")}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+            <Pressable onPress={() => setTool('crop')}>
               <Text
                 style={{
-                  color: tool === "crop" ? "#f5c400" : "#9ca3af",
-                  fontWeight: "700",
+                  color: tool === 'crop' ? COLORS.primaryBorder : '#9ca3af',
+                  fontWeight: '700',
                   fontSize: 16,
                 }}
               >
                 Crop
               </Text>
             </Pressable>
-            <Pressable onPress={() => setTool("perspective")}>
+            <Pressable onPress={() => setTool('perspective')}>
               <Text
                 style={{
-                  color: tool === "perspective" ? "#f5c400" : "#9ca3af",
-                  fontWeight: "700",
+                  color: tool === 'perspective' ? COLORS.primaryBorder : '#9ca3af',
+                  fontWeight: '700',
                   fontSize: 16,
                 }}
               >
@@ -1784,7 +2118,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
             <Ionicons
               name="checkmark"
               size={30}
-              color={busy ? "#6b7280" : "white"}
+              color={busy ? '#6b7280' : COLORS.primaryBorder}
             />
           </Pressable>
         </View>
@@ -1792,3 +2126,413 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  rowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  rowInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sectionHeading: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  subTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  caption: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 2,
+    fontFamily: FONT_FAMILY,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  step1Card: {
+    aspectRatio: 0.88,
+    borderRadius: RADII.lg,
+    overflow: 'hidden',
+    backgroundColor: COLORS.card,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    ...SHADOWS.soft,
+  },
+  step1CardActive: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  step1Img: {
+    width: '100%',
+    height: '100%',
+  },
+  topRightCheck: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topRightCheckOn: {
+    backgroundColor: COLORS.primary,
+  },
+  topRightCheckOff: {
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+  },
+  designTag: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    backgroundColor: COLORS.sheetBrown,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  designTagText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY,
+  },
+  bottomBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  panelsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  panelCard: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  panelTag: {
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 8,
+    backgroundColor: COLORS.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: RADII.pill,
+  },
+  panelTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    fontFamily: FONT_FAMILY,
+  },
+  panelBody: {
+    width: '100%',
+    backgroundColor: COLORS.surfaceMuted,
+  },
+  panelArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.soft,
+  },
+  checkerPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  checkerPlaceholderText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.primaryText,
+    textAlign: 'center',
+    marginTop: 6,
+    fontFamily: FONT_FAMILY,
+  },
+  thumbStripRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  miniThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceMuted,
+  },
+  miniThumbActive: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  miniAddTile: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniAddText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  pagerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pagerCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: COLORS.card,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pagerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  toolsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  toolBtn: {
+    flex: 1,
+    backgroundColor: COLORS.card,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minHeight: 68,
+    ...SHADOWS.soft,
+  },
+  toolBtnActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primaryBorder,
+  },
+  toolText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    textAlign: 'center',
+    fontFamily: FONT_FAMILY,
+  },
+  step3DesktopGrid: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 18,
+  },
+  greenCountBadge: {
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADII.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  greenCountBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    fontFamily: FONT_FAMILY,
+  },
+  carouselRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  step3Thumb: {
+    width: 72,
+    height: 82,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceMuted,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  step3ThumbActive: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  miniGreenCheck: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segmentRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  segmentCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.card,
+    borderRadius: RADII.md,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    minHeight: 52,
+  },
+  segmentCardActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
+  },
+  segmentTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  segmentSub: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  bgSwatch: {
+    width: 88,
+    height: 106,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surfaceMuted,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+  },
+  bgSwatchActive: {
+    borderColor: COLORS.primary,
+    borderWidth: 2.5,
+  },
+  bgName: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textDark,
+    marginTop: 5,
+    textAlign: 'center',
+    width: 88,
+    fontFamily: FONT_FAMILY,
+  },
+  editBgLink: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    marginTop: 2,
+    fontFamily: FONT_FAMILY,
+  },
+  previewPairRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  previewCol: {
+    flex: 1,
+    gap: 6,
+  },
+  previewBadgeMuted: {
+    alignSelf: 'center',
+    backgroundColor: COLORS.surfaceMuted,
+    borderRadius: RADII.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  previewBadgeMutedText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  previewBadgeGreen: {
+    alignSelf: 'center',
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADII.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  previewBadgeGreenText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    fontFamily: FONT_FAMILY,
+  },
+  previewFrame: {
+    width: '100%',
+    height: 210,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  outputCard: {
+    overflow: 'hidden',
+  },
+  outputImg: {
+    width: '100%',
+    aspectRatio: 0.9,
+    backgroundColor: COLORS.surfaceMuted,
+  },
+  outputActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: '#FFFFFF',
+  },
+  outputIconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  step4BtnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+});
