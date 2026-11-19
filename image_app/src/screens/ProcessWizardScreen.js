@@ -2483,6 +2483,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: COLORS.textMuted,
+    textAlign: 'center',
     fontFamily: FONT_FAMILY,
   },
   previewBadgeGreen: {
@@ -2496,6 +2497,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: COLORS.primaryText,
+    textAlign: 'center',
     fontFamily: FONT_FAMILY,
   },
   previewFrame: {
