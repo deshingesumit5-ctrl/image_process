@@ -1,11 +1,11 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useNavigationState } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../auth';
 import { useDrawer } from '../drawer';
-import { COLORS, FONT_FAMILY, RADII, getInitials, useResponsive } from '../theme';
+import { COLORS, FONT_FAMILY, getInitials, useResponsive } from '../theme';
 import { AvatarCircle } from './ui';
 
 export const NAV_ITEMS = [
@@ -16,19 +16,6 @@ export const NAV_ITEMS = [
   { name: 'Profile', label: 'Profile', icon: 'person-outline', activeIcon: 'person' },
 ];
 
-function useActiveTabName(fallbackName) {
-  return useNavigationState((state) => {
-    if (!state) return fallbackName;
-    let cur = state;
-    // Walk up or check root tab routes
-    if (cur.routes && cur.routes[cur.index]) {
-      const top = cur.routes[cur.index].name;
-      if (NAV_ITEMS.some((it) => it.name === top)) return top;
-    }
-    return fallbackName;
-  });
-}
-
 export default function AppHeader({
   title,
   subtitle,
@@ -37,24 +24,13 @@ export default function AppHeader({
   onBack,
   showSearch = true,
   onSearchPress,
-  activeTab: activeTabProp,
 }) {
   const { user } = useAuth();
   const drawer = useDrawer();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
   const { isDesktop, containerMaxWidth, horizontalPadding } = useResponsive();
-  const detectedTab = useActiveTabName(activeTabProp);
-  const activeTab = activeTabProp || detectedTab;
   const initials = getInitials(user?.name);
-  const perms = user?.permissions || {};
-
-  const visibleNavItems = NAV_ITEMS.filter((it) => {
-    if (it.name === 'Categories') {
-      return !!perms.category?.view || !!perms.product?.view || true;
-    }
-    return true;
-  });
 
   const handleBack = () => {
     if (onBack) return onBack();
@@ -100,7 +76,7 @@ export default function AppHeader({
             >
               <Ionicons name="arrow-back" size={22} color={COLORS.textDark} />
             </Pressable>
-          ) : !isDesktop ? (
+          ) : (
             <Pressable
               onPress={() => drawer?.setOpen(true)}
               accessibilityLabel="Menu"
@@ -109,39 +85,23 @@ export default function AppHeader({
             >
               <Ionicons name="menu-outline" size={24} color={COLORS.textDark} />
             </Pressable>
-          ) : (
+          )}
+
+          {isDashboard ? (
             <Pressable onPress={() => goTab('Home')} style={styles.brandRow}>
-              <Image
-                source={require('../../assets/icon.png')}
-                style={styles.logoImg}
-              />
-              <View>
+              {isDesktop ? (
+                <Image
+                  source={require('../../assets/icon.png')}
+                  style={styles.logoImg}
+                />
+              ) : null}
+              <View style={styles.titleBlock}>
                 <Text style={styles.brandTitle}>RCD Group</Text>
                 <Text style={styles.brandSub}>Image Processing</Text>
               </View>
             </Pressable>
-          )}
-
-          {!isDesktop ? (
-            isDashboard ? (
-              <View style={styles.titleBlock}>
-                <Text style={styles.brandTitle}>RCD Group</Text>
-                <Text style={styles.brandSub}>Image Processing</Text>
-              </View>
-            ) : (
-              <View style={styles.titleBlock}>
-                <Text style={styles.screenTitle} numberOfLines={1}>
-                  {title}
-                </Text>
-                {subtitle ? (
-                  <Text style={styles.screenSub} numberOfLines={1}>
-                    {subtitle}
-                  </Text>
-                ) : null}
-              </View>
-            )
-          ) : showBack && title ? (
-            <View style={[styles.titleBlock, { marginLeft: 8 }]}>
+          ) : (
+            <View style={styles.titleBlock}>
               <Text style={styles.screenTitle} numberOfLines={1}>
                 {title}
               </Text>
@@ -151,56 +111,12 @@ export default function AppHeader({
                 </Text>
               ) : null}
             </View>
-          ) : null}
+          )}
         </View>
-
-        {/* Desktop Center: Horizontal Nav Pills */}
-        {isDesktop ? (
-          <View style={styles.desktopNav}>
-            {visibleNavItems.map((item) => {
-              const active = activeTab === item.name;
-              return (
-                <Pressable
-                  key={item.name}
-                  onPress={() => goTab(item.name)}
-                  style={({ pressed }) => [
-                    styles.navPill,
-                    active && styles.navPillActive,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Ionicons
-                    name={active ? item.activeIcon : item.icon}
-                    size={16}
-                    color={active ? COLORS.primary : COLORS.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.navPillText,
-                      active && styles.navPillTextActive,
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
 
         {/* Right: Search, Bell, Avatar */}
         <View style={styles.rightGroup}>
-          {showSearch && !isDashboard ? (
-            <Pressable
-              onPress={handleSearch}
-              accessibilityLabel="Search"
-              style={styles.iconBtn}
-              hitSlop={8}
-            >
-              <Ionicons name="search-outline" size={21} color={COLORS.textDark} />
-            </Pressable>
-          ) : null}
-          {isDesktop && isDashboard ? (
+          {(showSearch && (!isDashboard || isDesktop)) ? (
             <Pressable
               onPress={handleSearch}
               accessibilityLabel="Search"
@@ -263,8 +179,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   logoImg: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: 10,
   },
   titleBlock: {
@@ -293,35 +209,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
     fontFamily: FONT_FAMILY,
-  },
-  desktopNav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: COLORS.surfaceMuted,
-    padding: 4,
-    borderRadius: RADII.pill,
-  },
-  navPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: RADII.pill,
-  },
-  navPillActive: {
-    backgroundColor: COLORS.primaryLight,
-  },
-  navPillText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textMuted,
-    fontFamily: FONT_FAMILY,
-  },
-  navPillTextActive: {
-    color: COLORS.primaryText,
-    fontWeight: '700',
   },
   rightGroup: {
     flexDirection: 'row',

@@ -36,7 +36,7 @@ export default function HomeScreen() {
         const [s, c] = await Promise.all([api.shortlist(token), api.categories(token)]);
         setShortCount(s.count || 0);
         setCategories(c.data || []);
-      })().catch(() => {});
+      })().catch(() => { });
     }, [token])
   );
 
@@ -45,8 +45,8 @@ export default function HomeScreen() {
   const webHeroGrad =
     Platform.OS === 'web'
       ? {
-          backgroundImage: 'linear-gradient(125deg, #E4F4E7 0%, #F2F7F1 55%, #F8EFE2 100%)',
-        }
+        backgroundImage: 'linear-gradient(125deg, #E4F4E7 0%, #F2F7F1 55%, #F8EFE2 100%)',
+      }
       : null;
 
   const gridGap = 12;

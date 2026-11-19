@@ -106,8 +106,8 @@ export default function LoginScreen() {
   const webGradient =
     Platform.OS === 'web'
       ? {
-          backgroundImage: `linear-gradient(180deg, #FFFFFF 0%, ${COLORS.bg} 45%, ${COLORS.bgGradientEnd} 100%)`,
-        }
+        backgroundImage: `linear-gradient(180deg, #FFFFFF 0%, ${COLORS.bg} 45%, ${COLORS.bgGradientEnd} 100%)`,
+      }
       : null;
 
   return (

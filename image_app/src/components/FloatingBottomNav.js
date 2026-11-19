@@ -9,10 +9,6 @@ export default function FloatingBottomNav({ state, navigation }) {
   const { isDesktop, isTablet } = useResponsive();
   const insets = useSafeAreaInsets();
 
-  if (isDesktop) {
-    return null;
-  }
-
   return (
     <View
       style={[
@@ -23,7 +19,7 @@ export default function FloatingBottomNav({ state, navigation }) {
       ]}
       pointerEvents="box-none"
     >
-      <View style={[styles.bar, isTablet && { maxWidth: 640 }]}>
+      <View style={[styles.bar, (isTablet || isDesktop) && { maxWidth: 640 }]}>
         {state.routes.map((route, index) => {
           const focused = state.index === index;
           const meta = NAV_ITEMS.find((it) => it.name === route.name) || {

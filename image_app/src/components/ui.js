@@ -28,15 +28,11 @@ export function PageContainer({
   style,
   bottomPad,
 }) {
-  const { isDesktop, containerMaxWidth, horizontalPadding } = useResponsive();
+  const { containerMaxWidth, horizontalPadding } = useResponsive();
   const insets = useSafeAreaInsets();
   const targetMax = maxWidth || containerMaxWidth;
   const padBottom =
-    bottomPad !== undefined
-      ? bottomPad
-      : isDesktop
-        ? 40
-        : Math.max(insets.bottom, 12) + 96;
+    bottomPad !== undefined ? bottomPad : Math.max(insets.bottom, 12) + 96;
 
   const webBg =
     Platform.OS === 'web'
@@ -475,9 +471,9 @@ export function InfoCard({ icon = 'information-circle-outline', title, subtitle,
 }
 
 export function ActionBar({ children, style }) {
-  const { actionBarMaxWidth, isDesktop } = useResponsive();
+  const { actionBarMaxWidth } = useResponsive();
   const insets = useSafeAreaInsets();
-  const bottomPos = isDesktop ? 16 : Math.max(insets.bottom, 10) + 74;
+  const bottomPos = Math.max(insets.bottom, 10) + 74;
   return (
     <View
       style={[styles.actionBarOuter, { bottom: bottomPos }]}
