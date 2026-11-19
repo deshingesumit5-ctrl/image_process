@@ -66,4 +66,4 @@ export function getCandidateApiUrls() {
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
 
-export const PRIMARY = '#4F46E5';
+export const PRIMARY = '#1B5E20';

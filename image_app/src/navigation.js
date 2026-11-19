@@ -1,9 +1,9 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text } from 'react-native';
-import { PRIMARY } from './config';
-import { DrawerProvider, AppDrawer, Hamburger } from './drawer';
+import { DrawerProvider, AppDrawer } from './drawer';
+import AppHeader from './components/AppHeader';
+import FloatingBottomNav from './components/FloatingBottomNav';
 import LoginScreen from './screens/LoginScreen';
 import HomeScreen from './screens/HomeScreen';
 import CategoriesScreen from './screens/CategoriesScreen';
@@ -22,29 +22,78 @@ const Tab = createBottomTabNavigator();
 const Catalog = createNativeStackNavigator();
 const Process = createNativeStackNavigator();
 
-const header = {
-  headerTintColor: PRIMARY,
-  headerLeft: () => <Hamburger />,
-};
-
 function CatalogStack() {
   return (
-    <Catalog.Navigator screenOptions={{ headerTintColor: PRIMARY }}>
-      <Catalog.Screen name="CategoryList" component={CategoriesScreen} options={{ title: 'Categories', headerLeft: () => <Hamburger /> }} />
-      <Catalog.Screen name="SubCategories" component={SubCategoriesScreen} options={{ title: 'Sub-Categories' }} />
-      <Catalog.Screen name="Products" component={ProductsScreen} options={{ title: 'Products' }} />
-      <Catalog.Screen name="ProductDetail" component={ProductDetailScreen} options={{ title: 'Product' }} />
+    <Catalog.Navigator
+      screenOptions={{
+        header: ({ options, route, back }) => (
+          <AppHeader
+            title={options.title || route.name}
+            subtitle={options.headerSubtitle}
+            showBack={Boolean(back)}
+            activeTab="Categories"
+          />
+        ),
+      }}
+    >
+      <Catalog.Screen
+        name="CategoryList"
+        component={CategoriesScreen}
+        options={{ title: 'Categories' }}
+      />
+      <Catalog.Screen
+        name="SubCategories"
+        component={SubCategoriesScreen}
+        options={{ title: 'Sub-Categories' }}
+      />
+      <Catalog.Screen
+        name="Products"
+        component={ProductsScreen}
+        options={{ title: 'Products' }}
+      />
+      <Catalog.Screen
+        name="ProductDetail"
+        component={ProductDetailScreen}
+        options={{ title: 'Product' }}
+      />
     </Catalog.Navigator>
   );
 }
 
 function ProcessStack() {
   return (
-    <Process.Navigator screenOptions={{ headerTintColor: PRIMARY }}>
-      <Process.Screen name="ProcessHome" component={ProcessHomeScreen} options={{ title: 'Image Processing', headerLeft: () => <Hamburger /> }} />
-      <Process.Screen name="SearchImages" component={SearchImagesScreen} options={{ title: 'Search Images' }} />
-      <Process.Screen name="ProcessWizard" component={ProcessWizardScreen} options={{ title: 'Process' }} />
-      <Process.Screen name="PrintPreview" component={PrintPreviewScreen} options={{ title: 'Print Preview' }} />
+    <Process.Navigator
+      screenOptions={{
+        header: ({ options, route, back }) => (
+          <AppHeader
+            title={options.title || route.name}
+            subtitle={options.headerSubtitle}
+            showBack={Boolean(back)}
+            activeTab="Processing"
+          />
+        ),
+      }}
+    >
+      <Process.Screen
+        name="ProcessHome"
+        component={ProcessHomeScreen}
+        options={{ title: 'Image Processing' }}
+      />
+      <Process.Screen
+        name="SearchImages"
+        component={SearchImagesScreen}
+        options={{ title: 'Search Images' }}
+      />
+      <Process.Screen
+        name="ProcessWizard"
+        component={ProcessWizardScreen}
+        options={{ title: 'Process Images' }}
+      />
+      <Process.Screen
+        name="PrintPreview"
+        component={PrintPreviewScreen}
+        options={{ title: 'Print Preview' }}
+      />
     </Process.Navigator>
   );
 }
@@ -59,12 +108,39 @@ export function AuthStack() {
 
 function Tabs() {
   return (
-    <Tab.Navigator screenOptions={{ headerShown: false, tabBarActiveTintColor: PRIMARY, tabBarStyle: { height: 58 } }}>
-      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarIcon: () => <Text>⌂</Text>, headerShown: true, title: 'Dashboard', ...header }} />
-      <Tab.Screen name="Categories" component={CatalogStack} options={{ tabBarIcon: () => <Text>▣</Text> }} />
-      <Tab.Screen name="Processing" component={ProcessStack} options={{ tabBarIcon: () => <Text>✦</Text> }} />
-      <Tab.Screen name="Shortlist" component={ShortlistScreen} options={{ tabBarIcon: () => <Text>♡</Text>, headerShown: true, ...header }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarIcon: () => <Text>●</Text>, headerShown: true, ...header }} />
+    <Tab.Navigator
+      tabBar={(props) => <FloatingBottomNav {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          headerShown: true,
+          title: 'Dashboard',
+          header: () => <AppHeader isDashboard activeTab="Home" />,
+        }}
+      />
+      <Tab.Screen name="Categories" component={CatalogStack} />
+      <Tab.Screen name="Processing" component={ProcessStack} />
+      <Tab.Screen
+        name="Shortlist"
+        component={ShortlistScreen}
+        options={{
+          headerShown: true,
+          title: 'Shortlist',
+          header: () => <AppHeader title="Shortlist" activeTab="Shortlist" />,
+        }}
+      />
+      <Tab.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          headerShown: true,
+          title: 'Profile',
+          header: () => <AppHeader title="Profile" activeTab="Profile" />,
+        }}
+      />
     </Tab.Navigator>
   );
 }
