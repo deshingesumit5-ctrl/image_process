@@ -119,8 +119,9 @@ export default function LoginScreen() {
       <View style={styles.card}>
         <View style={styles.brandBadge}>
           <Image
-            source={require('../../assets/icon.png')}
+            source={require('../../assets/applogo.png')}
             style={styles.logo}
+            resizeMode="contain"
           />
         </View>
 
@@ -310,19 +311,20 @@ const styles = StyleSheet.create({
   },
   brandBadge: {
     alignSelf: 'center',
-    width: 68,
-    height: 68,
+    width: 74,
+    height: 74,
     borderRadius: 20,
-    backgroundColor: COLORS.primaryLight,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 14,
     padding: 6,
   },
   logo: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 60,
+    height: 60,
   },
   brandName: {
     fontSize: 13,

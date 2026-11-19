@@ -71,8 +71,9 @@ export function AppDrawer() {
         <View style={styles.sheet}>
           <View style={styles.brandHeader}>
             <Image
-              source={require('../assets/icon.png')}
+              source={require('../assets/applogo.png')}
               style={styles.logo}
+              resizeMode="contain"
             />
             <View style={{ flex: 1 }}>
               <Text style={styles.brandTitle}>RCD Group</Text>

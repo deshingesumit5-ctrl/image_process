@@ -89,12 +89,11 @@ export default function AppHeader({
 
           {isDashboard ? (
             <Pressable onPress={() => goTab('Home')} style={styles.brandRow}>
-              {isDesktop ? (
-                <Image
-                  source={require('../../assets/icon.png')}
-                  style={styles.logoImg}
-                />
-              ) : null}
+              <Image
+                source={require('../../assets/applogo.png')}
+                style={styles.logoImg}
+                resizeMode="contain"
+              />
               <View style={styles.titleBlock}>
                 <Text style={styles.brandTitle}>RCD Group</Text>
                 <Text style={styles.brandSub}>Image Processing</Text>

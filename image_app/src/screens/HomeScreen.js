@@ -62,13 +62,7 @@ export default function HomeScreen() {
             Manage products, process images & backgrounds
           </Text>
         </View>
-        <Pressable
-          onPress={logout}
-          style={({ pressed }) => [styles.logoutPill, pressed && { opacity: 0.8 }]}
-        >
-          <Ionicons name="log-out-outline" size={16} color={COLORS.primaryText} />
-          <Text style={styles.logoutText}>Logout</Text>
-        </Pressable>
+    
       </View>
 
       {/* Desktop 2-column top section: Hero Banner + Quick Tiles & Stats */}

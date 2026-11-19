@@ -6,15 +6,23 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
     "ios": {
       "supportsTablet": false
+    },
+    "web": {
+      "favicon": "./assets/icon.png"
     },
     "android": {
       "package": "com.metaglobe.imageapp",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundImage": "./assets/adaptive-icon-background.png",
-        "backgroundColor": "#060b18"
+        "backgroundColor": "#FFFFFF"
       },
       "usesCleartextTraffic": true,
       "permissions": [
