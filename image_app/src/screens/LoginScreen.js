@@ -1,25 +1,19 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, Text, TextInput, View, StyleSheet } from 'react-native';
+import {
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import { Feather, Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../auth';
 import { API_BASE_URL } from '../config';
-import { Feather } from '@expo/vector-icons';
-
-// Color palette matching the dark admin panel design
-const COLORS = {
-  bg: '#0b0f1a',
-  card: '#111726',
-  border: 'rgba(255,255,255,0.1)',
-  inputBg: '#0b0f1a',
-  textPrimary: '#ffffff',
-  textSecondary: '#94a3b8',
-  placeholder: '#64748b',
-  emerald: '#059669',
-  emeraldLight: '#34d399',
-  emeraldDark: '#047857',
-  iconCircle: 'rgba(6, 95, 70, 0.4)',
-  errorBg: 'rgba(244,63,94,0.1)',
-  errorText: '#fb7185',
-};
+import { COLORS, FONT_FAMILY, RADII, SHADOWS } from '../theme';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -82,7 +76,7 @@ export default function LoginScreen() {
       setResetBusy(true);
       setResetError('');
 
-       const response = await fetch(`${API_BASE_URL}/password/reset-update`, {
+      const response = await fetch(`${API_BASE_URL}/password/reset-update`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,31 +103,48 @@ export default function LoginScreen() {
     }
   };
 
+  const webGradient =
+    Platform.OS === 'web'
+      ? {
+          backgroundImage: `linear-gradient(180deg, #FFFFFF 0%, ${COLORS.bg} 45%, ${COLORS.bgGradientEnd} 100%)`,
+        }
+      : null;
+
   return (
-    <View style={styles.screen}>
+    <ScrollView
+      style={[styles.root, webGradient]}
+      contentContainerStyle={styles.screen}
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.card}>
-             <View style={styles.iconCircle}>
-          <Feather name="user" size={28} color={COLORS.emeraldLight} />
+        <View style={styles.brandBadge}>
+          <Image
+            source={require('../../assets/icon.png')}
+            style={styles.logo}
+          />
         </View>
 
-        <Text style={styles.title}>Image Process App</Text>
-        <Text style={styles.subtitle}>Sign in with your credentials</Text>
+        <Text style={styles.brandName}>RCD Group</Text>
+        <Text style={styles.title}>Image Processing</Text>
+        <Text style={styles.subtitle}>Sign in with your sales staff credentials</Text>
 
         {error ? (
           <View style={styles.errorBox}>
+            <Ionicons name="alert-circle-outline" size={16} color={COLORS.danger} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
         <Text style={styles.label}>Email Address</Text>
-         <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
-          <Feather name="mail" size={16} color={COLORS.placeholder} style={styles.inputIcon} />
+        <View style={[styles.inputWrapper, emailFocused && styles.inputWrapperFocused]}>
+          <Feather name="mail" size={17} color={COLORS.textMuted} style={styles.inputIcon} />
           <TextInput
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            keyboardType="email-address"
             placeholder="Enter email"
-            placeholderTextColor={COLORS.placeholder}
+            placeholderTextColor={COLORS.textLight}
             onFocus={() => setEmailFocused(true)}
             onBlur={() => setEmailFocused(false)}
             style={styles.input}
@@ -142,26 +153,49 @@ export default function LoginScreen() {
 
         <Text style={styles.label}>Password</Text>
         <View style={[styles.inputWrapper, passwordFocused && styles.inputWrapperFocused]}>
-          <Feather name="lock" size={16} color={COLORS.placeholder} style={styles.inputIcon} />
+          <Feather name="lock" size={17} color={COLORS.textMuted} style={styles.inputIcon} />
           <TextInput
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
             placeholder="Enter password"
-            placeholderTextColor={COLORS.placeholder}
+            placeholderTextColor={COLORS.textLight}
             onFocus={() => setPasswordFocused(true)}
             onBlur={() => setPasswordFocused(false)}
             style={styles.input}
           />
+          <Pressable
+            onPress={() => setShowPassword((v) => !v)}
+            style={styles.eyeButton}
+            hitSlop={8}
+          >
+            <Ionicons
+              name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+              size={18}
+              color={COLORS.textMuted}
+            />
+          </Pressable>
         </View>
+
         <Pressable onPress={openForgotPassword} style={styles.forgotLink}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </Pressable>
 
-        <Pressable onPress={onSubmit} disabled={busy} style={styles.loginButton}>
+        <Pressable
+          onPress={onSubmit}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.loginButton,
+            busy && { opacity: 0.65 },
+            pressed && { opacity: 0.9 },
+          ]}
+        >
           <Text style={styles.loginButtonText}>
-            {busy ? 'SIGNING IN…' : 'LOGIN'}{!busy ? '  →' : ''}
+            {busy ? 'SIGNING IN…' : 'LOGIN'}
           </Text>
+          {!busy ? (
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+          ) : null}
         </Pressable>
       </View>
 
@@ -170,36 +204,45 @@ export default function LoginScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>🔑  Forgot / Reset Password</Text>
-              <Pressable onPress={closeModal}>
-                <Text style={styles.modalClose}>✕</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={styles.modalIcon}>
+                  <Ionicons name="key-outline" size={18} color={COLORS.primary} />
+                </View>
+                <Text style={styles.modalTitle}>Reset Password</Text>
+              </View>
+              <Pressable onPress={closeModal} style={styles.closeBtn}>
+                <Ionicons name="close" size={20} color={COLORS.textMuted} />
               </Pressable>
             </View>
 
-            <Text style={styles.label}>Admin Email Address *</Text>
+            <Text style={styles.label}>Email Address *</Text>
             <View style={styles.inputWrapper}>
               <TextInput
                 value={resetEmail}
                 onChangeText={setResetEmail}
                 autoCapitalize="none"
                 placeholder="admin@gmail.com"
-                placeholderTextColor={COLORS.placeholder}
+                placeholderTextColor={COLORS.textLight}
                 style={styles.input}
               />
             </View>
 
-            <Text style={styles.label}>Enter New Password *</Text>
+            <Text style={styles.label}>New Password *</Text>
             <View style={styles.inputWrapper}>
               <TextInput
                 value={newPassword}
                 onChangeText={setNewPassword}
                 secureTextEntry={!showNewPassword}
                 placeholder="Enter new password"
-                placeholderTextColor={COLORS.placeholder}
+                placeholderTextColor={COLORS.textLight}
                 style={styles.input}
               />
               <Pressable onPress={() => setShowNewPassword(!showNewPassword)} style={styles.eyeButton}>
-                <Text style={styles.eyeIcon}>{showNewPassword ? '🙈' : '👁'}</Text>
+                <Ionicons
+                  name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color={COLORS.textMuted}
+                />
               </Pressable>
             </View>
 
@@ -210,17 +253,22 @@ export default function LoginScreen() {
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirmPassword}
                 placeholder="Repeat new password"
-                placeholderTextColor={COLORS.placeholder}
+                placeholderTextColor={COLORS.textLight}
                 style={styles.input}
               />
-              <Pressable onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeButton}>
-                <Text style={styles.eyeIcon}>{showConfirmPassword ? '🙈' : '👁'}</Text>
+              <Pressable
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.eyeButton}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                  size={18}
+                  color={COLORS.textMuted}
+                />
               </Pressable>
             </View>
 
-            {resetError ? (
-              <Text style={styles.resetErrorText}>{resetError}</Text>
-            ) : null}
+            {resetError ? <Text style={styles.resetErrorText}>{resetError}</Text> : null}
 
             <View style={styles.modalActions}>
               <Pressable onPress={closeModal} style={styles.cancelButton}>
@@ -228,114 +276,149 @@ export default function LoginScreen() {
               </Pressable>
               <Pressable onPress={onSaveReset} disabled={resetBusy} style={styles.saveButton}>
                 <Text style={styles.saveButtonText}>
-                  {resetBusy ? 'Saving…' : 'Save & Update Password'}
+                  {resetBusy ? 'Saving…' : 'Update Password'}
                 </Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  root: {
     flex: 1,
     backgroundColor: COLORS.bg,
+  },
+  screen: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 20,
   },
   card: {
     width: '100%',
     maxWidth: 420,
     backgroundColor: COLORS.card,
-    borderRadius: 16,
+    borderRadius: RADII.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: 28,
+    ...SHADOWS.soft,
   },
-  iconCircle: {
+  brandBadge: {
     alignSelf: 'center',
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: COLORS.iconCircle,
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: COLORS.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
+    padding: 6,
   },
-  iconGlyph: { fontSize: 26 },
-  title: {
-    fontSize: 22,
+  logo: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+  },
+  brandName: {
+    fontSize: 13,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: COLORS.primaryText,
     textAlign: 'center',
+    letterSpacing: 0.4,
+    fontFamily: FONT_FAMILY,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    textAlign: 'center',
+    marginTop: 2,
     marginBottom: 4,
+    fontFamily: FONT_FAMILY,
   },
   subtitle: {
     fontSize: 13,
-    color: COLORS.textSecondary,
+    color: COLORS.textMuted,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 22,
+    fontFamily: FONT_FAMILY,
   },
   errorBox: {
-    backgroundColor: COLORS.errorBg,
-    borderRadius: 8,
-    paddingVertical: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.dangerSoft,
+    borderRadius: RADII.sm,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    marginBottom: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
-  errorText: { color: COLORS.errorText, fontSize: 13 },
+  errorText: {
+    flex: 1,
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: '500',
+    fontFamily: FONT_FAMILY,
+  },
   label: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#e2e8f0',
+    color: COLORS.textDark,
     marginBottom: 6,
+    fontFamily: FONT_FAMILY,
   },
-  
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.inputBg,
-    borderWidth: 1,
+    backgroundColor: COLORS.surfaceMuted,
+    borderWidth: 1.5,
     borderColor: COLORS.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    borderRadius: RADII.md,
+    paddingHorizontal: 14,
+    minHeight: 48,
     marginBottom: 16,
   },
   inputWrapperFocused: {
-    borderColor: COLORS.emeraldLight,
+    borderColor: COLORS.primary,
+    backgroundColor: '#FFFFFF',
   },
-
-  inputIcon: { marginRight: 8 },
+  inputIcon: { marginRight: 10 },
   input: {
     flex: 1,
-    color: COLORS.textPrimary,
-    paddingVertical: 12,
+    color: COLORS.textBody,
+    paddingVertical: 10,
     fontSize: 14,
-    outlineStyle: 'none', // removes default browser focus ring on web
+    fontFamily: FONT_FAMILY,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : null),
   },
   eyeButton: { padding: 6 },
-  eyeIcon: { fontSize: 16 },
-  forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 20 },
-  forgotText: { color: COLORS.emeraldLight, fontSize: 13, fontWeight: '600' },
+  forgotLink: { alignSelf: 'flex-end', marginTop: -6, marginBottom: 20, paddingVertical: 4 },
+  forgotText: { color: COLORS.primaryText, fontSize: 13, fontWeight: '600', fontFamily: FONT_FAMILY },
   loginButton: {
-    backgroundColor: COLORS.emerald,
-    borderRadius: 999,
-    paddingVertical: 14,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADII.pill,
+    height: 50,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   loginButtonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: '700',
-    fontSize: 14,
-    letterSpacing: 0.5,
+    fontSize: 15,
+    letterSpacing: 0.4,
+    fontFamily: FONT_FAMILY,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(15, 42, 29, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -344,10 +427,11 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: COLORS.card,
-    borderRadius: 16,
+    borderRadius: RADII.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
     padding: 22,
+    ...SHADOWS.floating,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -358,9 +442,34 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     marginBottom: 16,
   },
-  modalTitle: { color: COLORS.textPrimary, fontSize: 16, fontWeight: '700' },
-  modalClose: { color: COLORS.textSecondary, fontSize: 18 },
-  resetErrorText: { color: COLORS.errorText, fontSize: 13, marginBottom: 8 },
+  modalIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    color: COLORS.textDark,
+    fontSize: 17,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY,
+  },
+  closeBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.surfaceMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetErrorText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    marginBottom: 8,
+    fontFamily: FONT_FAMILY,
+  },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
@@ -369,17 +478,27 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    borderColor: COLORS.borderStrong,
+    borderRadius: RADII.pill,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
   },
-  cancelButtonText: { color: '#e2e8f0', fontSize: 13 },
+  cancelButtonText: {
+    color: COLORS.textDark,
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: FONT_FAMILY,
+  },
   saveButton: {
-    backgroundColor: COLORS.emerald,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADII.pill,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
   },
-  saveButtonText: { color: 'white', fontSize: 13, fontWeight: '600' },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY,
+  },
 });

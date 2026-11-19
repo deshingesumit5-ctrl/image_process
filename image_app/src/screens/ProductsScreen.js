@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { PRIMARY } from '../config';
+import { COLORS, FONT_FAMILY, useResponsive } from '../theme';
+import {
+  ActionBar,
+  EmptyState,
+  PageContainer,
+  PillButton,
+  ProductCard,
+} from '../components/ui';
 
 export default function ProductsScreen({ route, navigation }) {
   const { token } = useAuth();
@@ -11,6 +19,15 @@ export default function ProductsScreen({ route, navigation }) {
   const q = route.params?.q;
   const [items, setItems] = useState([]);
   const [selected, setSelected] = useState({});
+  const { productCols, contentWidth } = useResponsive();
+
+  useEffect(() => {
+    const title = sub?.name || category?.name || (q ? `Search: ${q}` : 'Products');
+    navigation.setOptions({
+      title,
+      headerSubtitle: `${items.length} Products`,
+    });
+  }, [navigation, sub, category, q, items.length]);
 
   useEffect(() => {
     const params = { q: q || '' };
@@ -41,31 +58,126 @@ export default function ProductsScreen({ route, navigation }) {
     Alert.alert('Added to shortlist', 'Selections accumulate across categories.');
   };
 
+  const selectedCount = items.filter((p) => selected[p.id]).length;
+  const allSelected = items.length > 0 && selectedCount === items.length;
+  const gap = 12;
+  const cardWidth = Math.floor((contentWidth - gap * (productCols - 1)) / productCols);
+
   return (
-    <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12 }}>
-        <Pressable onPress={selectAll}><Text style={{ color: PRIMARY }}>Select all</Text></Pressable>
-        <Pressable onPress={add}><Text style={{ color: PRIMARY, fontWeight: '700' }}>Add to shortlist</Text></Pressable>
-      </View>
-      <ScrollView contentContainerStyle={{ padding: 12 }}>
-        {items.map((p) => (
-          <Pressable key={p.id} onLongPress={() => navigation.navigate('ProductDetail', { id: p.id })} onPress={() => toggle(p.id)} style={{ flexDirection: 'row', backgroundColor: 'white', borderRadius: 14, marginBottom: 8, padding: 10, alignItems: 'center' }}>
-            {p.images?.[0]?.url ? (
-              <Image source={{ uri: p.images[0].url }} style={{ width: 64, height: 64, borderRadius: 8, marginRight: 10 }} />
-            ) : (
-              <View style={{ width: 64, height: 64, borderRadius: 8, marginRight: 10, backgroundColor: '#e2e8f0' }} />
-            )}
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontWeight: '600' }}>{p.name}</Text>
-              <Text style={{ color: '#64748b' }}>{p.design_number}</Text>
-              <Pressable onPress={() => navigation.navigate('ProductDetail', { id: p.id })}>
-                <Text style={{ color: PRIMARY, marginTop: 4 }}>View details</Text>
-              </Pressable>
+    <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
+      <PageContainer bottomPad={170}>
+        {/* Select All bar */}
+        <View style={styles.toolbar}>
+          <Pressable onPress={selectAll} style={styles.selectAllBtn}>
+            <View
+              style={[
+                styles.checkBox,
+                allSelected ? styles.checkBoxOn : styles.checkBoxOff,
+              ]}
+            >
+              {allSelected ? (
+                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+              ) : null}
             </View>
-            <Text>{selected[p.id] ? '☑' : '☐'}</Text>
+            <Text style={styles.selectAllText}>Select All</Text>
           </Pressable>
-        ))}
-      </ScrollView>
+          <Text style={styles.countText}>{items.length} Products</Text>
+        </View>
+
+        {items.length === 0 ? (
+          <EmptyState
+            icon="shirt-outline"
+            title="No products found"
+            subtitle="Try another category or search term."
+          />
+        ) : (
+          <View style={[styles.grid, { gap }]}>
+            {items.map((p) => (
+              <ProductCard
+                key={p.id}
+                name={p.name}
+                designNumber={p.design_number}
+                imageUrl={p.images?.[0]?.url}
+                selected={Boolean(selected[p.id])}
+                width={cardWidth}
+                onPress={() => toggle(p.id)}
+                onLongPress={() => navigation.navigate('ProductDetail', { id: p.id })}
+                onDetailPress={() => navigation.navigate('ProductDetail', { id: p.id })}
+              />
+            ))}
+          </View>
+        )}
+      </PageContainer>
+
+      <ActionBar>
+        <Text style={styles.selectedCountText}>{selectedCount} Selected</Text>
+        <PillButton
+          label="Add to Shortlist"
+          icon="heart-outline"
+          onPress={add}
+          compact
+          style={{ flex: 1, maxWidth: 260 }}
+        />
+      </ActionBar>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  toolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  selectAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 44,
+    paddingRight: 10,
+  },
+  checkBox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkBoxOff: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
+  },
+  checkBoxOn: {
+    backgroundColor: COLORS.primary,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+  },
+  selectAllText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  countText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  actionBar: {
+    bottom: 76,
+  },
+  selectedCountText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    fontFamily: FONT_FAMILY,
+    paddingLeft: 6,
+  },
+});

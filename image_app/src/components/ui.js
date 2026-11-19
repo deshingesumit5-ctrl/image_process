@@ -475,9 +475,14 @@ export function InfoCard({ icon = 'information-circle-outline', title, subtitle,
 }
 
 export function ActionBar({ children, style }) {
-  const { actionBarMaxWidth } = useResponsive();
+  const { actionBarMaxWidth, isDesktop } = useResponsive();
+  const insets = useSafeAreaInsets();
+  const bottomPos = isDesktop ? 16 : Math.max(insets.bottom, 10) + 74;
   return (
-    <View style={styles.actionBarOuter} pointerEvents="box-none">
+    <View
+      style={[styles.actionBarOuter, { bottom: bottomPos }]}
+      pointerEvents="box-none"
+    >
       <View
         style={[
           styles.actionBarInner,
