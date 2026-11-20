@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../api';
+import {
+  enrichSubCategoriesWithProducts,
+  fetchAllProducts,
+  fetchAllSubCategories,
+  resolveMediaUrl,
+} from '../api';
 import { useAuth } from '../auth';
 import { COLORS, FONT_FAMILY, RADII, SHADOWS, useResponsive } from '../theme';
 import {
@@ -15,11 +20,26 @@ export default function SubCategoriesScreen({ route, navigation }) {
   const { category } = route.params;
   const { token } = useAuth();
   const [items, setItems] = useState([]);
+  const [imgErrors, setImgErrors] = useState({});
   const { isDesktop, contentWidth } = useResponsive();
 
   useEffect(() => {
     navigation.setOptions({ title: category.name });
-    api.subCategories(token, category.id).then((r) => setItems(r.data || [])).catch(() => {});
+    let active = true;
+    (async () => {
+      const [subRes, prodRes] = await Promise.allSettled([
+        fetchAllSubCategories(token, category.id),
+        fetchAllProducts(token, { category_id: category.id }),
+      ]);
+      if (!active) return;
+      const rawSubs = subRes.status === 'fulfilled' ? subRes.value : [];
+      const rawProds = prodRes.status === 'fulfilled' ? prodRes.value : [];
+      setImgErrors({});
+      setItems(enrichSubCategoriesWithProducts(rawSubs, rawProds));
+    })();
+    return () => {
+      active = false;
+    };
   }, [category, token, navigation]);
 
   const activeCount = items.filter((s) => s.status !== false).length;
@@ -93,7 +113,13 @@ export default function SubCategoriesScreen({ route, navigation }) {
       ) : (
         <View style={[styles.list, { gap: rowGap }]}>
           {items.map((sub) => {
-            const thumb = sub.thumbnail_url || sub.image_url;
+            const thumb = resolveMediaUrl(
+              sub.resolved_thumbnail ||
+                sub.thumbnail_url ||
+                sub.image_url ||
+                sub.image_path
+            );
+            const hasThumb = Boolean(thumb) && !imgErrors[sub.id];
             const subCount = sub.products_count ?? sub.product_count;
             const isActive = sub.status !== false;
             return (
@@ -107,11 +133,14 @@ export default function SubCategoriesScreen({ route, navigation }) {
                 ]}
               >
                 <View style={styles.thumbBox}>
-                  {thumb ? (
+                  {hasThumb ? (
                     <Image
                       source={{ uri: thumb }}
                       style={styles.thumbImg}
                       resizeMode="cover"
+                      onError={() =>
+                        setImgErrors((prev) => ({ ...prev, [sub.id]: true }))
+                      }
                     />
                   ) : (
                     <Ionicons name="shirt-outline" size={24} color={COLORS.primary} />

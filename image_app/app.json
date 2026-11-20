@@ -6,19 +6,24 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFFFF",
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["whatsapp"]
+      }
     },
     "web": {
       "favicon": "./assets/icon.png"
     },
     "android": {
       "package": "com.metaglobe.imageapp",
+      "backgroundColor": "#FFFFFF",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundImage": "./assets/adaptive-icon-background.png",
@@ -41,6 +46,7 @@
       "expo-image-picker",
       "expo-sharing",
       "expo-status-bar",
+      "./plugins/withWhatsAppQueries",
       [
         "expo-media-library",
         {

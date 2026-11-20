@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Platform,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { resolveMediaUrl } from '../api';
 import {
   COLORS,
   FONT_FAMILY,
@@ -223,6 +224,7 @@ export function StatTile({
   borderColor,
   onPress,
   style,
+  labelStyle,
 }) {
   const Wrapper = onPress ? Pressable : View;
   return (
@@ -244,7 +246,7 @@ export function StatTile({
       {value !== undefined && value !== null ? (
         <Text style={styles.statTileValue}>{value}</Text>
       ) : null}
-      <Text style={styles.statTileLabel} numberOfLines={2}>
+      <Text style={[styles.statTileLabel, labelStyle]} numberOfLines={2}>
         {label}
       </Text>
     </Wrapper>
@@ -261,6 +263,13 @@ export function CategoryCard({
   icon = 'shirt-outline',
   style,
 }) {
+  const [imgError, setImgError] = useState(false);
+  const resolvedUrl = resolveMediaUrl(imageUrl);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [resolvedUrl]);
+
   return (
     <Pressable
       onPress={onPress}
@@ -272,11 +281,12 @@ export function CategoryCard({
       ]}
     >
       <View style={[styles.catImageBox, horizontal && { height: 108 }]}>
-        {imageUrl ? (
+        {resolvedUrl && !imgError ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{ uri: resolvedUrl }}
             style={styles.catImage}
             resizeMode="cover"
+            onError={() => setImgError(true)}
           />
         ) : (
           <View style={styles.catPlaceholder}>
@@ -321,6 +331,13 @@ export function ProductCard({
   width,
   style,
 }) {
+  const [imgError, setImgError] = useState(false);
+  const resolvedUrl = resolveMediaUrl(imageUrl);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [resolvedUrl]);
+
   return (
     <Pressable
       onPress={onPress}
@@ -334,11 +351,12 @@ export function ProductCard({
       ]}
     >
       <View style={styles.prodImageWrap}>
-        {imageUrl ? (
+        {resolvedUrl && !imgError ? (
           <Image
-            source={{ uri: imageUrl }}
+            source={{ uri: resolvedUrl }}
             style={styles.prodImage}
             resizeMode="cover"
+            onError={() => setImgError(true)}
           />
         ) : (
           <View style={styles.prodPlaceholder}>

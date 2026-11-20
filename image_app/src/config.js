@@ -65,5 +65,7 @@ export function getCandidateApiUrls() {
 }
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL;
+export const MEDIA_BASE_URL = 'https://13.233.117.126.sslip.io';
+export const API_BASE_URL = API_URL.replace(/\/api\/?$/, '') || MEDIA_BASE_URL;
 
 export const PRIMARY = '#1B5E20';

@@ -15,17 +15,22 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import ViewShot from 'react-native-view-shot';
-import { api } from '../api';
+import ViewShot, { captureRef } from 'react-native-view-shot';
+import { api, fetchAllProducts } from '../api';
 import { useAuth } from '../auth';
+import { saveLocalRecentProcessed } from '../recentStorage';
 import {
+  buildCatalogCaption,
   persistLocalImage,
+  renderCatalogCardToDataUrl,
   saveImagesToGallery,
   shareCaptionAndImages,
-  buildProductCaption,
 } from '../share';
+import ImagePreviewModal from '../components/ImagePreviewModal';
 import ProductSheet from '../components/ProductSheet';
+import ToastBanner from '../components/ToastBanner';
 import {
+  ActionBar,
   Card,
   Chip as UIChip,
   EmptyState,
@@ -50,8 +55,9 @@ const corsSafe = (uri) =>
   String(uri).replace(/^(https?:\/\/[^/]+)\/storage\//, '$1/api/media/');
 
 export default function ProcessWizardScreen({ route, navigation }) {
-  const { token, user } = useAuth();
-  const { isDesktop, processMaxWidth, contentWidth, outputCols } = useResponsive();
+  const { token } = useAuth();
+  const { isDesktop, isMobile, isTablet, processMaxWidth, contentWidth, outputCols } =
+    useResponsive();
   const [step, setStep] = useState(route.params?.step || 1);
   const [assets, setAssets] = useState(route.params?.assets || []);
   const [originals, setOriginals] = useState(
@@ -73,7 +79,30 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const productImageIds = route.params?.productImageIds || [];
   const [productList, setProductList] = useState([]);
   const [productQuery] = useState('');
+  const [outputFilter, setOutputFilter] = useState('all'); // 'all' | 'shortlisted'
+  const [outputViewMode, setOutputViewMode] = useState('grid'); // 'grid' | 'list'
+  const [selectedOutputs, setSelectedOutputs] = useState({});
+  const [shortlistedOutputs, setShortlistedOutputs] = useState({});
+  const [deletedOutputs, setDeletedOutputs] = useState({});
+  const [fullScreenPreview, setFullScreenPreview] = useState(null);
+  const [toast, setToast] = useState(null);
   const sheetRef = useRef(null);
+
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type, key: Date.now() });
+  };
+
+  useEffect(() => {
+    if (route.params?.step) {
+      setStep(route.params.step);
+    }
+  }, [route.params?.step]);
+
+  useEffect(() => {
+    navigation.setOptions({
+      title: step === 4 ? 'Final Output' : 'Process Images',
+    });
+  }, [step, navigation]);
 
   useEffect(() => {
     api
@@ -88,9 +117,8 @@ export default function ProcessWizardScreen({ route, navigation }) {
   }, [token, orientation, chip, customBackgrounds]);
 
   useEffect(() => {
-    api
-      .products(token, productQuery ? { q: productQuery } : {})
-      .then((r) => setProductList(r.data || r.products || []))
+    fetchAllProducts(token, productQuery ? { q: productQuery } : {})
+      .then((list) => setProductList(list))
       .catch(() => setProductList([]));
   }, [token, productQuery]);
 
@@ -379,8 +407,19 @@ export default function ProcessWizardScreen({ route, navigation }) {
       const rows = res.data || [];
       setResult(rows);
       await applyResultsToAssets(rows, assets);
+      if (rows.length) {
+        saveLocalRecentProcessed(
+          rows.map((r, i) => ({
+            url: r.url,
+            image_count: rows.length,
+            product: assets[i]?.product || null,
+          }))
+        );
+      }
+      setDeletedOutputs({});
       setStep(4);
     } catch (e) {
+      setDeletedOutputs({});
       setStep(4);
     } finally {
       setBusy(false);
@@ -408,6 +447,13 @@ export default function ProcessWizardScreen({ route, navigation }) {
       const rows = res.data || [];
       if (rows[0]?.url) {
         await applyResultsToAssets(rows, [asset]);
+        saveLocalRecentProcessed([
+          {
+            url: rows[0].url,
+            image_count: 1,
+            product: asset?.product || null,
+          },
+        ]);
       } else {
         setAssets((prev) =>
           prev.map((item, idx) =>
@@ -440,6 +486,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
     setBusy(true);
     try {
       const updated = [...assets];
+      const remoteEntries = [];
       for (let i = 0; i < updated.length; i += 1) {
         const item = updated[i];
         const form = new FormData();
@@ -452,10 +499,20 @@ export default function ProcessWizardScreen({ route, navigation }) {
         await appendImageFile(form, item.cutoutUri || item.uri, i);
         const res = await api.process(token, form);
         const url = res.data?.[0]?.url;
+        if (url) {
+          remoteEntries.push({
+            url,
+            image_count: updated.length,
+            product: item?.product || null,
+          });
+        }
         updated[i] = url
           ? { ...item, uri: await persistLocalImage(url), composited: true }
           : { ...item, composited: true };
         setAssets([...updated]);
+      }
+      if (remoteEntries.length) {
+        saveLocalRecentProcessed(remoteEntries);
       }
       setResult(updated.map((a) => ({ url: a.uri })));
       Alert.alert('Done', 'Background applied to all images.');
@@ -481,42 +538,197 @@ export default function ProcessWizardScreen({ route, navigation }) {
     if (next >= 0) setCurrent(next);
   };
 
-  const captureSheet = async () => {
-    if (!sheetRef.current) throw new Error('Page is not ready yet.');
-    return await sheetRef.current.capture();
+  const routeProducts = route.params?.products || [];
+  const rawSheetItems = (result.length ? result : assets).map((item, i) => {
+    const linkedProd =
+      assets[i]?.product ||
+      routeProducts[i] ||
+      (routeProducts.length === 1 ? routeProducts[0] : undefined);
+    return {
+      key: String(i),
+      index: i,
+      uri: item.url || item.uri,
+      product: linkedProd,
+      designNumber:
+        linkedProd?.design_number ||
+        linkedProd?.name ||
+        `Design ${i + 1}`,
+    };
+  });
+
+  const visibleOutputItems = rawSheetItems.filter(
+    (it) => it.uri && !deletedOutputs[it.key]
+  );
+  const shortlistedOutputItems = visibleOutputItems.filter(
+    (it) => Boolean(shortlistedOutputs[it.key])
+  );
+  const displayedOutputItems =
+    outputFilter === 'shortlisted' ? shortlistedOutputItems : visibleOutputItems;
+  const selectedOutputItems = visibleOutputItems.filter(
+    (it) => Boolean(selectedOutputs[it.key])
+  );
+  const sheetShareItems = selectedOutputItems.length
+    ? selectedOutputItems
+    : visibleOutputItems;
+
+  useEffect(() => {
+    if (step !== 4) return;
+    setSelectedOutputs((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      rawSheetItems.forEach((it) => {
+        if (next[it.key] === undefined && !deletedOutputs[it.key]) {
+          next[it.key] = true;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [step, rawSheetItems.length]);
+
+  const toggleOutputSelected = (key) => {
+    setSelectedOutputs((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleOutputShortlisted = async (item) => {
+    const nextState = !shortlistedOutputs[item.key];
+    setShortlistedOutputs((prev) => ({ ...prev, [item.key]: nextState }));
+    if (nextState && item.product?.id) {
+      api
+        .addShortlist(token, [
+          {
+            product_id: item.product.id,
+            product_image_id: item.product.images?.[0]?.id,
+          },
+        ])
+        .catch(() => {});
+    }
+    showToast(
+      nextState ? 'Added to Shortlist.' : 'Removed from Shortlist.'
+    );
+  };
+
+  const bulkShortlistSelected = () => {
+    if (!selectedOutputItems.length) {
+      showToast('Select at least one image first.', 'error');
+      return;
+    }
+    const allShortlisted = selectedOutputItems.every(
+      (it) => shortlistedOutputs[it.key]
+    );
+    const nextVal = !allShortlisted;
+    setShortlistedOutputs((prev) => {
+      const next = { ...prev };
+      selectedOutputItems.forEach((it) => {
+        next[it.key] = nextVal;
+      });
+      return next;
+    });
+    if (nextVal) {
+      const linkedItems = selectedOutputItems
+        .filter((it) => it.product?.id)
+        .map((it) => ({
+          product_id: it.product.id,
+          product_image_id: it.product.images?.[0]?.id,
+        }));
+      if (linkedItems.length) {
+        api.addShortlist(token, linkedItems).catch(() => {});
+      }
+    }
+    showToast(
+      nextVal
+        ? `Shortlisted ${selectedOutputItems.length} image(s).`
+        : `Removed ${selectedOutputItems.length} image(s) from shortlist.`
+    );
+  };
+
+  const bulkDeleteSelected = () => {
+    if (!selectedOutputItems.length) {
+      showToast('Select at least one image to remove.', 'error');
+      return;
+    }
+    const count = selectedOutputItems.length;
+    setDeletedOutputs((prev) => {
+      const next = { ...prev };
+      selectedOutputItems.forEach((it) => {
+        next[it.key] = true;
+      });
+      return next;
+    });
+    setSelectedOutputs((prev) => {
+      const next = { ...prev };
+      selectedOutputItems.forEach((it) => {
+        next[it.key] = false;
+      });
+      return next;
+    });
+    showToast(`Removed ${count} image(s) from Final Output.`);
+  };
+
+  const captureSheet = async (itemsToCapture = sheetShareItems) => {
+    if (Platform.OS === 'web') {
+      return await renderCatalogCardToDataUrl(itemsToCapture);
+    }
+    if (!sheetRef.current) throw new Error('Catalogue card is not ready yet.');
+    return await captureRef(sheetRef, { format: 'png', quality: 1 });
+  };
+
+  const downloadSelectedToGallery = async () => {
+    if (!selectedOutputItems.length) {
+      showToast('Select at least one image to download.', 'error');
+      return;
+    }
+    try {
+      const count = await saveImagesToGallery(
+        selectedOutputItems.map((it) => it.uri)
+      );
+      showToast(`Saved ${count} image(s) to gallery.`);
+    } catch (e) {
+      showToast(e.message || 'Save failed.', 'error');
+    }
   };
 
   const saveResultsToGallery = async () => {
+    if (!sheetShareItems.length) {
+      showToast('No images available to save.', 'error');
+      return;
+    }
     try {
-      const uri = await captureSheet();
+      const uri = await captureSheet(sheetShareItems);
       await saveImagesToGallery([uri]);
-      Alert.alert('Saved', 'Page saved to gallery.');
+      showToast('Catalogue card saved to gallery.');
     } catch (e) {
-      Alert.alert('Save failed', e.message);
+      showToast(e.message || 'Save failed.', 'error');
     }
   };
 
   const shareOnWhatsApp = async () => {
+    if (!selectedOutputItems.length) {
+      showToast('Please select at least one image to share.', 'error');
+      return;
+    }
     try {
-      const uri = await captureSheet();
-      const linked = assets.map((a) => a.product).filter(Boolean);
-      const source = linked.length ? linked : products;
-      let caption = source.length
-        ? buildProductCaption(
-            source,
-            user?.phone || user?.mobile || user?.contact || ''
-          )
-        : '';
-      if (!caption && productImageIds.length) {
-        try {
-          const payload = await api.captions(token, productImageIds);
-          caption = payload.caption;
-        } catch (e) {}
+      const uri = await captureSheet(selectedOutputItems);
+      const linkedProducts = selectedOutputItems
+        .map((it) => it.product)
+        .filter(Boolean);
+      const source = linkedProducts.length ? linkedProducts : products;
+      const caption = buildCatalogCaption(
+        source.length ? source : selectedOutputItems,
+        selectedOutputItems.length
+      );
+      const shareRes = await shareCaptionAndImages(caption, [uri]);
+      const productIds = [
+        ...new Set(linkedProducts.map((p) => p?.id).filter(Boolean)),
+      ];
+      if (productIds.length) {
+        api.logShare(token, productIds).catch(() => {});
       }
-      if (!caption) caption = 'Ramchandra Dresses';
-      await shareCaptionAndImages(caption, [uri]);
+      if (shareRes?.captionCopied) {
+        showToast('Caption copied – paste if missing');
+      }
     } catch (e) {
-      Alert.alert('Share failed', e.message);
+      showToast(e.message || 'Share failed.', 'error');
     }
   };
 
@@ -534,10 +746,6 @@ export default function ProcessWizardScreen({ route, navigation }) {
   })();
 
   const preview = assets[current];
-  const sheetItems = (result.length ? result : assets).map((item, i) => ({
-    uri: item.url || item.uri,
-    product: assets[i]?.product,
-  }));
 
   const stepInfo = {
     1: {
@@ -559,7 +767,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
     4: {
       icon: 'checkmark-done-outline',
       title: 'Step 4: Final Output',
-      subtitle: 'Your processed images are ready.',
+      subtitle: 'Select designs, shortlist favorites & share catalogue on WhatsApp.',
     },
   }[step];
 
@@ -570,9 +778,10 @@ export default function ProcessWizardScreen({ route, navigation }) {
     (effectiveWidth - step1Gap * (step1Cols - 1)) / step1Cols
   );
 
-  const outGap = 10;
+  const step4Cols = isDesktop ? 4 : isTablet ? 3 : 2;
+  const outGap = 12;
   const outCardW = Math.floor(
-    (effectiveWidth - outGap * (outputCols - 1)) / outputCols
+    (effectiveWidth - outGap * (step4Cols - 1)) / step4Cols
   );
 
   const showOverlay = Boolean(
@@ -612,20 +821,36 @@ export default function ProcessWizardScreen({ route, navigation }) {
     </View>
   );
 
+  const step4PageStyle =
+    step === 4
+      ? {
+          backgroundColor: '#FFFFFF',
+          ...(Platform.OS === 'web' ? { backgroundImage: 'none' } : null),
+        }
+      : undefined;
+
   return (
-    <>
-      <PageContainer maxWidth={processMaxWidth}>
+    <View style={{ flex: 1, backgroundColor: step === 4 ? '#FFFFFF' : COLORS.bg }}>
+      <ToastBanner toast={toast} onHide={() => setToast(null)} />
+
+      <PageContainer
+        maxWidth={processMaxWidth}
+        style={step4PageStyle}
+        bottomPad={step === 4 ? 200 : undefined}
+      >
         <Stepper
           steps={STEPS}
           currentStep={step}
           onStepPress={(n) => setStep(n)}
         />
 
-        <InfoCard
-          icon={stepInfo.icon}
-          title={stepInfo.title}
-          subtitle={stepInfo.subtitle}
-        />
+        {step !== 4 ? (
+          <InfoCard
+            icon={stepInfo.icon}
+            title={stepInfo.title}
+            subtitle={stepInfo.subtitle}
+          />
+        ) : null}
 
         {/* STEP 1 */}
         {step === 1 && (
@@ -1342,125 +1567,394 @@ export default function ProcessWizardScreen({ route, navigation }) {
           </View>
         )}
 
-        {/* STEP 4 */}
+        {/* STEP 4: Final Output */}
         {step === 4 && (
           <View style={{ gap: 16 }}>
-            {/* Processed Images Grid */}
-            {sheetItems.length > 0 ? (
-              <View style={[styles.grid, { gap: outGap }]}>
-                {sheetItems.map((it, idx) => (
-                  <Card
-                    key={`${it.uri}-${idx}`}
-                    style={[styles.outputCard, { width: outCardW }]}
-                    padded={false}
+            {/* Filter Pills & Grid/List View Toggle */}
+            <View style={styles.finalToolbar}>
+              <View style={styles.finalTabsRow}>
+                <Pressable
+                  onPress={() => setOutputFilter('all')}
+                  style={[
+                    styles.finalPillTab,
+                    outputFilter === 'all' && styles.finalPillTabActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.finalPillTabText,
+                      outputFilter === 'all' && styles.finalPillTabTextActive,
+                    ]}
                   >
-                    <Image
-                      source={{ uri: it.uri }}
-                      style={styles.outputImg}
-                      resizeMode="cover"
-                    />
-                    <View style={styles.outputActions}>
+                    All Images ({visibleOutputItems.length})
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => setOutputFilter('shortlisted')}
+                  style={[
+                    styles.finalPillTab,
+                    outputFilter === 'shortlisted' && styles.finalPillTabActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.finalPillTabText,
+                      outputFilter === 'shortlisted' &&
+                        styles.finalPillTabTextActive,
+                    ]}
+                  >
+                    Shortlisted ({shortlistedOutputItems.length})
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.viewToggleGroup}>
+                <Pressable
+                  onPress={() => setOutputViewMode('grid')}
+                  accessibilityLabel="Grid view"
+                  style={[
+                    styles.viewToggleBtn,
+                    outputViewMode === 'grid' && styles.viewToggleBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    name="grid"
+                    size={16}
+                    color={outputViewMode === 'grid' ? '#FFFFFF' : '#111827'}
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={() => setOutputViewMode('list')}
+                  accessibilityLabel="List view"
+                  style={[
+                    styles.viewToggleBtn,
+                    outputViewMode === 'list' && styles.viewToggleBtnActive,
+                  ]}
+                >
+                  <Ionicons
+                    name="list"
+                    size={18}
+                    color={outputViewMode === 'list' ? '#FFFFFF' : '#111827'}
+                  />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Processed Images Grid / List */}
+            {displayedOutputItems.length === 0 ? (
+              <EmptyState
+                icon={outputFilter === 'shortlisted' ? 'star-outline' : 'images-outline'}
+                title={
+                  outputFilter === 'shortlisted'
+                    ? 'No shortlisted images yet'
+                    : 'No processed images'
+                }
+                subtitle={
+                  outputFilter === 'shortlisted'
+                    ? 'Tap the star icon on any product image to shortlist it.'
+                    : 'Process images in previous steps to view your final output.'
+                }
+              />
+            ) : outputViewMode === 'grid' ? (
+              <View style={[styles.grid, { gap: outGap }]}>
+                {displayedOutputItems.map((it) => {
+                  const isSelected = Boolean(selectedOutputs[it.key]);
+                  const isShortlisted = Boolean(shortlistedOutputs[it.key]);
+                  return (
+                    <Pressable
+                      key={it.key}
+                      onPress={() => toggleOutputSelected(it.key)}
+                      onLongPress={() =>
+                        setFullScreenPreview({
+                          uri: it.uri,
+                          title: it.designNumber,
+                        })
+                      }
+                      style={[
+                        styles.finalCard,
+                        { width: outCardW },
+                        isSelected && styles.finalCardSelected,
+                      ]}
+                    >
+                      <View style={styles.finalImgWrap}>
+                        <Image
+                          source={{ uri: it.uri }}
+                          style={styles.finalImg}
+                          resizeMode="cover"
+                        />
+
+                        {/* Top-left selection checkbox */}
+                        <Pressable
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            toggleOutputSelected(it.key);
+                          }}
+                          hitSlop={8}
+                          style={[
+                            styles.finalCheckbox,
+                            isSelected
+                              ? styles.finalCheckboxOn
+                              : styles.finalCheckboxOff,
+                          ]}
+                        >
+                          {isSelected ? (
+                            <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                          ) : null}
+                        </Pressable>
+
+                        {/* Top-right shortlist star */}
+                        <Pressable
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            toggleOutputShortlisted(it);
+                          }}
+                          hitSlop={8}
+                          style={styles.finalStarBtn}
+                        >
+                          <Ionicons
+                            name={isShortlisted ? 'star' : 'star-outline'}
+                            size={16}
+                            color={isShortlisted ? '#2E7D32' : '#374151'}
+                          />
+                        </Pressable>
+                      </View>
+
+                      <View style={styles.finalLabelRow}>
+                        <Text style={styles.finalDesignLabel} numberOfLines={1}>
+                          {it.designNumber}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                {displayedOutputItems.map((it) => {
+                  const isSelected = Boolean(selectedOutputs[it.key]);
+                  const isShortlisted = Boolean(shortlistedOutputs[it.key]);
+                  const colourText = it.product?.colour || it.product?.color;
+                  const sizeText = (it.product?.sizes || [])
+                    .map((s) => s.size)
+                    .filter(Boolean)
+                    .join(' | ');
+                  return (
+                    <Pressable
+                      key={it.key}
+                      onPress={() => toggleOutputSelected(it.key)}
+                      style={[
+                        styles.finalListCard,
+                        isSelected && styles.finalCardSelected,
+                      ]}
+                    >
                       <Pressable
-                        onPress={() =>
-                          saveImagesToGallery([it.uri]).then(() =>
-                            Alert.alert('Saved', 'Image saved to gallery.')
-                          ).catch((e) => Alert.alert('Save failed', e.message))
-                        }
-                        style={styles.outputIconBtn}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          toggleOutputSelected(it.key);
+                        }}
+                        style={[
+                          styles.finalCheckboxStatic,
+                          isSelected
+                            ? styles.finalCheckboxOn
+                            : styles.finalCheckboxOff,
+                        ]}
+                      >
+                        {isSelected ? (
+                          <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                        ) : null}
+                      </Pressable>
+
+                      <Image
+                        source={{ uri: it.uri }}
+                        style={styles.finalListThumb}
+                        resizeMode="cover"
+                      />
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.finalListTitle} numberOfLines={1}>
+                          {it.designNumber}
+                        </Text>
+                        {it.product?.name ? (
+                          <Text style={styles.finalListSub} numberOfLines={1}>
+                            {it.product.name}
+                          </Text>
+                        ) : null}
+                        {(colourText || sizeText) ? (
+                          <Text style={styles.finalListMeta} numberOfLines={1}>
+                            {[colourText, sizeText].filter(Boolean).join(' · ')}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      <Pressable
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          toggleOutputShortlisted(it);
+                        }}
+                        style={styles.finalListIconBtn}
                       >
                         <Ionicons
-                          name="download-outline"
-                          size={16}
-                          color={COLORS.primary}
+                          name={isShortlisted ? 'star' : 'star-outline'}
+                          size={18}
+                          color={isShortlisted ? '#2E7D32' : '#4B5563'}
                         />
                       </Pressable>
+
                       <Pressable
-                        onPress={() => {
-                          const p = it.product;
-                          const cap = p
-                            ? buildProductCaption([p], user?.phone || '')
-                            : 'Ramchandra Dresses';
-                          shareCaptionAndImages(cap, [it.uri]).catch((e) =>
-                            Alert.alert('Share failed', e.message)
-                          );
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          setFullScreenPreview({
+                            uri: it.uri,
+                            title: it.designNumber,
+                          });
                         }}
-                        style={styles.outputIconBtn}
+                        style={styles.finalListIconBtn}
                       >
                         <Ionicons
-                          name="logo-whatsapp"
-                          size={16}
-                          color={COLORS.primary}
-                        />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => {
-                          setCurrent(idx);
-                          setStep(2);
-                        }}
-                        style={styles.outputIconBtn}
-                      >
-                        <Ionicons
-                          name="create-outline"
-                          size={16}
+                          name="expand-outline"
+                          size={18}
                           color={COLORS.textDark}
                         />
                       </Pressable>
-                    </View>
-                  </Card>
-                ))}
+
+                      <Pressable
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          setCurrent(it.index);
+                          setStep(2);
+                        }}
+                        style={styles.finalListIconBtn}
+                      >
+                        <Ionicons
+                          name="create-outline"
+                          size={18}
+                          color={COLORS.textDark}
+                        />
+                      </Pressable>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+
+            {/* Combined Richboy Collection Catalogue Share Card */}
+            {sheetShareItems.length > 0 ? (
+              <View style={styles.catalogueSection}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.sectionHeading}>
+                    WhatsApp Catalogue Card Preview
+                  </Text>
+                  <View style={styles.rowInline}>
+                    <PillButton
+                      label="Save Card"
+                      icon="download-outline"
+                      variant="outline"
+                      compact
+                      onPress={saveResultsToGallery}
+                    />
+                    <PillButton
+                      label="Print Preview"
+                      icon="print-outline"
+                      variant="soft"
+                      compact
+                      onPress={() =>
+                        navigation.navigate('PrintPreview', {
+                          images: sheetShareItems.map((it) => ({
+                            url: it.uri,
+                            product: it.product,
+                            designNumber: it.designNumber,
+                          })),
+                          products,
+                        })
+                      }
+                    />
+                  </View>
+                </View>
+
+                <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center', marginTop: 10 }}>
+                  <ViewShot
+                    ref={sheetRef}
+                    collapsable={false}
+                    options={{ format: 'png', quality: 1 }}
+                    style={{
+                      width: '100%',
+                      backgroundColor: '#FFFFFF',
+                      paddingVertical: 4,
+                    }}
+                  >
+                    <ProductSheet items={sheetShareItems} />
+                  </ViewShot>
+                </View>
               </View>
             ) : null}
-
-            {/* Combined Catalog Sheet */}
-            <Text style={styles.sectionHeading}>Catalog Share Sheet</Text>
-            <View style={{ width: '100%', maxWidth: 520, alignSelf: 'center' }}>
-              <ViewShot
-                ref={sheetRef}
-                collapsable={false}
-                options={{ format: 'png', quality: 1 }}
-                style={{
-                  width: '100%',
-                  backgroundColor: COLORS.bg,
-                  paddingVertical: 4,
-                }}
-              >
-                <ProductSheet items={sheetItems} />
-              </ViewShot>
-            </View>
-
-            <View style={styles.step4BtnRow}>
-              <PillButton
-                label="Save Page to Gallery"
-                icon="download-outline"
-                variant="outline"
-                onPress={saveResultsToGallery}
-                style={{ flex: 1, minWidth: 160 }}
-              />
-              <PillButton
-                label="Share on WhatsApp"
-                icon="logo-whatsapp"
-                onPress={shareOnWhatsApp}
-                style={{ flex: 1, minWidth: 160 }}
-              />
-              <PillButton
-                label="Print Preview"
-                icon="print-outline"
-                variant="soft"
-                onPress={() =>
-                  navigation.navigate('PrintPreview', {
-                    images: sheetItems.map((it) => ({
-                      url: it.uri,
-                      product: it.product,
-                    })),
-                    products,
-                  })
-                }
-                style={{ flex: 1, minWidth: 150 }}
-              />
-            </View>
           </View>
         )}
       </PageContainer>
+
+      {/* Bottom Action Bar for Step 4 (Final Output) */}
+      {step === 4 ? (
+        <ActionBar style={styles.finalActionBar}>
+          <View style={{ width: '100%', gap: 10 }}>
+            <Text style={styles.finalSelectedText}>
+              {selectedOutputItems.length}{' '}
+              {selectedOutputItems.length === 1 ? 'Image' : 'Images'} Selected
+            </Text>
+            <View style={styles.finalBottomRow}>
+              <View style={styles.finalQuickIcons}>
+                <Pressable
+                  onPress={downloadSelectedToGallery}
+                  accessibilityLabel="Download selected images"
+                  style={styles.finalQuickBtn}
+                >
+                  <Ionicons name="download-outline" size={20} color="#111827" />
+                </Pressable>
+                <Pressable
+                  onPress={shareOnWhatsApp}
+                  accessibilityLabel="Quick WhatsApp share"
+                  style={[styles.finalQuickBtn, styles.finalQuickWaBtn]}
+                >
+                  <Ionicons name="logo-whatsapp" size={20} color="#2E7D32" />
+                </Pressable>
+                <Pressable
+                  onPress={bulkShortlistSelected}
+                  accessibilityLabel="Shortlist selected images"
+                  style={styles.finalQuickBtn}
+                >
+                  <Ionicons
+                    name={
+                      selectedOutputItems.length > 0 &&
+                      selectedOutputItems.every((it) => shortlistedOutputs[it.key])
+                        ? 'star'
+                        : 'star-outline'
+                    }
+                    size={20}
+                    color="#111827"
+                  />
+                </Pressable>
+                <Pressable
+                  onPress={bulkDeleteSelected}
+                  accessibilityLabel="Remove selected images"
+                  style={styles.finalQuickBtn}
+                >
+                  <Ionicons name="trash-outline" size={20} color="#111827" />
+                </Pressable>
+              </View>
+
+              <Pressable
+                onPress={shareOnWhatsApp}
+                style={({ pressed }) => [
+                  styles.finalSharePill,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <Ionicons name="logo-whatsapp" size={18} color="#FFFFFF" />
+                <Text style={styles.finalSharePillText}>Share on WhatsApp</Text>
+              </Pressable>
+            </View>
+          </View>
+        </ActionBar>
+      ) : null}
 
       <Modal
         visible={cropOpen}
@@ -1477,7 +1971,14 @@ export default function ProcessWizardScreen({ route, navigation }) {
           />
         ) : null}
       </Modal>
-    </>
+
+      <ImagePreviewModal
+        visible={Boolean(fullScreenPreview)}
+        uri={fullScreenPreview?.uri}
+        title={fullScreenPreview?.title}
+        onClose={() => setFullScreenPreview(null)}
+      />
+    </View>
   );
 }
 
@@ -2536,5 +3037,242 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  finalToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  finalTabsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  finalPillTab: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: RADII.pill,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  finalPillTabActive: {
+    backgroundColor: '#1B5E20',
+    borderColor: '#1B5E20',
+  },
+  finalPillTabText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    fontFamily: FONT_FAMILY,
+  },
+  finalPillTabTextActive: {
+    color: '#FFFFFF',
+  },
+  viewToggleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  viewToggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: '#1B5E20',
+    borderColor: '#1B5E20',
+  },
+  finalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    overflow: 'hidden',
+    ...SHADOWS.soft,
+  },
+  finalCardSelected: {
+    borderColor: '#1B5E20',
+  },
+  finalImgWrap: {
+    width: '100%',
+    aspectRatio: 0.88,
+    backgroundColor: '#FBF7F0',
+    position: 'relative',
+  },
+  finalImg: {
+    width: '100%',
+    height: '100%',
+  },
+  finalCheckbox: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalCheckboxStatic: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalCheckboxOn: {
+    backgroundColor: '#1B5E20',
+    borderWidth: 1.5,
+    borderColor: '#1B5E20',
+  },
+  finalCheckboxOff: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
+  },
+  finalStarBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalLabelRow: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  finalDesignLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    fontFamily: FONT_FAMILY,
+  },
+  finalListCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    padding: 10,
+    ...SHADOWS.soft,
+  },
+  finalListThumb: {
+    width: 56,
+    height: 64,
+    borderRadius: 10,
+    backgroundColor: '#FBF7F0',
+  },
+  finalListTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+    fontFamily: FONT_FAMILY,
+  },
+  finalListSub: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    marginTop: 1,
+    fontFamily: FONT_FAMILY,
+  },
+  finalListMeta: {
+    fontSize: 11,
+    color: '#2E7D32',
+    marginTop: 2,
+    fontWeight: '600',
+    fontFamily: FONT_FAMILY,
+  },
+  finalListIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catalogueSection: {
+    marginTop: 8,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  finalActionBar: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+  },
+  finalSelectedText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1B5E20',
+    fontFamily: FONT_FAMILY,
+  },
+  finalBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  finalQuickIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  finalQuickBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finalQuickWaBtn: {
+    borderColor: '#A5D6A7',
+    backgroundColor: '#F0FDF4',
+  },
+  finalSharePill: {
+    flex: 1,
+    minWidth: 165,
+    minHeight: 44,
+    borderRadius: RADII.pill,
+    backgroundColor: '#1B5E20',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+  },
+  finalSharePillText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    fontFamily: FONT_FAMILY,
   },
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../api';
+import { api, fetchAllProducts } from '../api';
 import { useAuth } from '../auth';
 import { COLORS, FONT_FAMILY, useResponsive } from '../theme';
 import {
@@ -33,7 +33,7 @@ export default function ProductsScreen({ route, navigation }) {
     const params = { q: q || '' };
     if (category) params.category_id = category.id;
     if (sub) params.sub_category_id = sub.id;
-    api.products(token, params).then((r) => setItems(r.data || [])).catch(() => {});
+    fetchAllProducts(token, params).then((list) => setItems(list)).catch(() => {});
   }, [token, category, sub, q]);
 
   const toggle = (id) => setSelected((s) => ({ ...s, [id]: !s[id] }));

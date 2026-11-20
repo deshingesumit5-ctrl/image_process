@@ -1,12 +1,14 @@
-import React, { useRef } from 'react';
-import ViewShot from 'react-native-view-shot';
-import { Alert, StyleSheet, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import ViewShot, { captureRef } from 'react-native-view-shot';
+import { Alert, Platform, StyleSheet, View } from 'react-native';
 import {
+  buildCatalogCaption,
+  renderCatalogCardToDataUrl,
   saveImagesToGallery,
   shareCaptionAndImages,
-  buildProductCaption,
 } from '../share';
 import ProductSheet from '../components/ProductSheet';
+import ToastBanner from '../components/ToastBanner';
 import { PageContainer, PillButton } from '../components/ui';
 import { useResponsive } from '../theme';
 
@@ -14,30 +16,42 @@ export default function PrintPreviewScreen({ route }) {
   const images = route.params?.images || [];
   const products = route.params?.products || [];
   const sheetRef = useRef(null);
+  const [toast, setToast] = useState(null);
   const { processMaxWidth } = useResponsive();
 
+  const sheetItems = images.map((it) => ({
+    uri: it.url || it.uri,
+    product: it.product,
+    designNumber: it.designNumber || it.product?.design_number,
+  }));
+
   const capture = async () => {
-    const uri = await sheetRef.current?.capture?.();
+    if (Platform.OS === 'web') {
+      return await renderCatalogCardToDataUrl(sheetItems);
+    }
+    if (!sheetRef.current) throw new Error('Could not capture the page.');
+    const uri = await captureRef(sheetRef, { format: 'png', quality: 1 });
     if (!uri) throw new Error('Could not capture the page.');
     return uri;
   };
 
   const linked = images.map((it) => it.product).filter(Boolean);
-  const caption = buildProductCaption(linked.length ? linked : products);
+  const caption = buildCatalogCaption(
+    linked.length ? linked : products,
+    sheetItems.length || 1
+  );
 
   return (
-    <PageContainer maxWidth={processMaxWidth}>
+    <View style={{ flex: 1 }}>
+      <ToastBanner toast={toast} onHide={() => setToast(null)} />
+      <PageContainer maxWidth={processMaxWidth}>
       <ViewShot
         ref={sheetRef}
+        collapsable={false}
         options={{ format: 'png', quality: 1 }}
         style={{ alignSelf: 'center' }}
       >
-        <ProductSheet
-          items={images.map((it) => ({
-            uri: it.url || it.uri,
-            product: it.product,
-          }))}
-        />
+        <ProductSheet items={sheetItems} />
       </ViewShot>
 
       <View style={styles.actions}>
@@ -63,14 +77,22 @@ export default function PrintPreviewScreen({ route }) {
           onPress={async () => {
             try {
               const uri = await capture();
-              await shareCaptionAndImages(caption, [uri]);
+              const shareRes = await shareCaptionAndImages(caption, [uri]);
+              if (shareRes?.captionCopied) {
+                setToast({
+                  message: 'Caption copied – paste if missing',
+                  type: 'success',
+                  key: Date.now(),
+                });
+              }
             } catch (e) {
               Alert.alert('Share failed', e.message);
             }
           }}
         />
       </View>
-    </PageContainer>
+      </PageContainer>
+    </View>
   );
 }
 

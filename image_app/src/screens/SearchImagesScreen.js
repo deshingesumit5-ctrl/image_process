@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../api';
+import { fetchAllProducts } from '../api';
 import { useAuth } from '../auth';
 import ProductDetailsTable from '../components/ProductDetailsTable';
 import {
@@ -20,9 +20,8 @@ export default function SearchImagesScreen({ navigation }) {
   const { isDesktop, contentWidth } = useResponsive();
 
   useEffect(() => {
-    api
-      .products(token, { q: '' })
-      .then((r) => setProducts(r.data || []))
+    fetchAllProducts(token, { q: '' })
+      .then((list) => setProducts(list))
       .catch(() => {});
   }, [token]);
 

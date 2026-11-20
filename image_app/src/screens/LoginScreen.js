@@ -17,8 +17,8 @@ import { COLORS, FONT_FAMILY, RADII, SHADOWS } from '../theme';
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [email, setEmail] = useState('sales@image.test');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
@@ -36,6 +36,10 @@ export default function LoginScreen() {
   const [resetBusy, setResetBusy] = useState(false);
 
   const onSubmit = async () => {
+    if (!email.trim() || !password) {
+      setError('Please enter email and password.');
+      return;
+    }
     try {
       setBusy(true);
       setError('');
@@ -143,6 +147,10 @@ export default function LoginScreen() {
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="off"
+            textContentType="none"
+            importantForAutofill="no"
             keyboardType="email-address"
             placeholder="Enter email"
             placeholderTextColor={COLORS.textLight}
@@ -159,6 +167,11 @@ export default function LoginScreen() {
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete={Platform.OS === 'web' ? 'new-password' : 'off'}
+            textContentType="none"
+            importantForAutofill="no"
             placeholder="Enter password"
             placeholderTextColor={COLORS.textLight}
             onFocus={() => setPasswordFocused(true)}

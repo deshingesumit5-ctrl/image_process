@@ -10,7 +10,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { api } from '../api';
+import {
+  api,
+  enrichCategoriesWithProducts,
+  fetchAllCategories,
+  fetchAllProductsWithMeta,
+} from '../api';
 import { useAuth } from '../auth';
 import { COLORS, FONT_FAMILY, RADII, SHADOWS, useResponsive } from '../theme';
 import {
@@ -22,21 +27,76 @@ import {
   StatTile,
 } from '../components/ui';
 
+function formatStatCount(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num < 0) return '0';
+  return num.toLocaleString();
+}
+
 export default function HomeScreen() {
-  const { token, user, logout } = useAuth();
+  const { token, user } = useAuth();
   const nav = useNavigation();
   const { isDesktop, isMobile, categoryCols, contentWidth } = useResponsive();
   const [q, setQ] = useState('');
   const [shortCount, setShortCount] = useState(0);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [processedImages, setProcessedImages] = useState(0);
   const [categories, setCategories] = useState([]);
 
   useFocusEffect(
     useCallback(() => {
+      let active = true;
       (async () => {
-        const [s, c] = await Promise.all([api.shortlist(token), api.categories(token)]);
-        setShortCount(s.count || 0);
-        setCategories(c.data || []);
-      })().catch(() => { });
+        const [shortRes, catRes, prodRes, recentRes] = await Promise.allSettled([
+          api.shortlist(token),
+          fetchAllCategories(token),
+          fetchAllProductsWithMeta(token),
+          api.recentProcess(token),
+        ]);
+        if (!active) return;
+
+        const nextShortCount =
+          shortRes.status === 'fulfilled'
+            ? Number(shortRes.value?.count ?? shortRes.value?.items?.length ?? 0)
+            : 0;
+        setShortCount(Number.isFinite(nextShortCount) ? nextShortCount : 0);
+
+        const rawCats = catRes.status === 'fulfilled' ? catRes.value : [];
+        const prodPayload =
+          prodRes.status === 'fulfilled'
+            ? prodRes.value
+            : { items: [], total: 0 };
+        const rawProds = prodPayload.items || [];
+        const nextTotalProducts = Number(prodPayload.total ?? rawProds.length ?? 0);
+        setTotalProducts(Number.isFinite(nextTotalProducts) ? nextTotalProducts : 0);
+
+        const processedProductImages = rawProds.reduce(
+          (sum, p) =>
+            sum +
+            (p?.images || []).filter((img) => Boolean(img?.is_processed)).length,
+          0
+        );
+        const recentLogs =
+          recentRes.status === 'fulfilled' ? recentRes.value?.data || [] : [];
+        const recentLogsImageSum = recentLogs.reduce(
+          (sum, row) => sum + (Number(row?.image_count) || 0),
+          0
+        );
+        const recentTotal =
+          recentRes.status === 'fulfilled' && recentRes.value?.total != null
+            ? Number(recentRes.value.total)
+            : recentLogsImageSum;
+        const nextProcessedImages = Math.max(
+          processedProductImages,
+          Number.isFinite(recentTotal) ? recentTotal : 0
+        );
+        setProcessedImages(nextProcessedImages);
+
+        setCategories(enrichCategoriesWithProducts(rawCats, rawProds));
+      })();
+      return () => {
+        active = false;
+      };
     }, [token])
   );
 
@@ -108,7 +168,7 @@ export default function HomeScreen() {
                 onChangeText={setQ}
                 onSubmitEditing={search}
                 returnKeyType="search"
-                placeholder="Name, design no, barcode, size"
+                placeholder="Search products, categories or design number..."
                 placeholderTextColor={COLORS.textLight}
                 style={styles.searchInput}
               />
@@ -122,21 +182,39 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {/* Quick Tiles (only screens that exist) */}
-          <View style={styles.tilesRow}>
+          {/* 4 Quick Tiles: Image Processing, Background Master, Product Master, Shortlist */}
+          <View style={[styles.tilesRow, isMobile && { gap: 8 }]}>
             <StatTile
               label="Image Processing"
               icon="color-wand-outline"
               tint={COLORS.tileGreen}
               iconColor={COLORS.primary}
               borderColor={COLORS.primary}
-              onPress={() => nav.navigate('Processing')}
+              style={isMobile ? styles.quickTileMobile : undefined}
+              labelStyle={isMobile ? styles.quickTileLabelMobile : undefined}
+              onPress={() => nav.navigate('Processing', { screen: 'ProcessHome' })}
+            />
+            <StatTile
+              label="Background Master"
+              icon="image-outline"
+              tint={COLORS.tilePeach}
+              iconColor="#6B4F28"
+              style={isMobile ? styles.quickTileMobile : undefined}
+              labelStyle={isMobile ? styles.quickTileLabelMobile : undefined}
+              onPress={() =>
+                nav.navigate('Processing', {
+                  screen: 'ProcessWizard',
+                  params: { step: 3 },
+                })
+              }
             />
             <StatTile
               label="Product Master"
               icon="cube-outline"
               tint={COLORS.tileBlue}
               iconColor="#1D6FA5"
+              style={isMobile ? styles.quickTileMobile : undefined}
+              labelStyle={isMobile ? styles.quickTileLabelMobile : undefined}
               onPress={() => nav.navigate('Categories', { screen: 'Products' })}
             />
             <StatTile
@@ -144,34 +222,61 @@ export default function HomeScreen() {
               icon="heart-outline"
               tint={COLORS.tilePink}
               iconColor={COLORS.heart}
+              style={isMobile ? styles.quickTileMobile : undefined}
+              labelStyle={isMobile ? styles.quickTileLabelMobile : undefined}
               onPress={() => nav.navigate('Shortlist')}
             />
           </View>
 
-          {/* Real Shortlisted Stats Card + Empty Shortlist */}
+          {/* Real Data Summary Card: Total Products, Processed Images, Shortlisted */}
           <Card style={styles.statsCard}>
             <Pressable
-              onPress={() => nav.navigate('Shortlist')}
-              style={styles.statMain}
+              onPress={() => nav.navigate('Categories', { screen: 'Products' })}
+              style={[styles.statColumn, isMobile && styles.statColumnMobile]}
             >
-              <View style={styles.statHeartCircle}>
-                <Ionicons name="heart-outline" size={20} color={COLORS.heart} />
+              <View style={styles.statIconWrap}>
+                <Ionicons name="cube-outline" size={22} color={COLORS.primary} />
               </View>
-              <View>
-                <Text style={styles.statLabel}>Shortlisted</Text>
-                <Text style={styles.statNumber}>{shortCount}</Text>
+              <View style={[styles.statTextWrap, isMobile && { alignItems: 'center' }]}>
+                <Text style={styles.statLabel} numberOfLines={2}>
+                  Total Products
+                </Text>
+                <Text style={styles.statNumber}>{formatStatCount(totalProducts)}</Text>
               </View>
             </Pressable>
+
             <View style={styles.statDivider} />
+
             <Pressable
-              onPress={async () => {
-                await api.emptyShortlist(token);
-                setShortCount(0);
-              }}
-              style={({ pressed }) => [styles.emptyBtn, pressed && { opacity: 0.8 }]}
+              onPress={() => nav.navigate('Processing', { screen: 'ProcessHome' })}
+              style={[styles.statColumn, isMobile && styles.statColumnMobile]}
             >
-              <Ionicons name="trash-outline" size={16} color={COLORS.primaryText} />
-              <Text style={styles.emptyBtnText}>Empty Shortlist</Text>
+              <View style={styles.statIconWrap}>
+                <Ionicons name="image-outline" size={22} color="#1D6FA5" />
+              </View>
+              <View style={[styles.statTextWrap, isMobile && { alignItems: 'center' }]}>
+                <Text style={styles.statLabel} numberOfLines={2}>
+                  Processed Images
+                </Text>
+                <Text style={styles.statNumber}>{formatStatCount(processedImages)}</Text>
+              </View>
+            </Pressable>
+
+            <View style={styles.statDivider} />
+
+            <Pressable
+              onPress={() => nav.navigate('Shortlist')}
+              style={[styles.statColumn, isMobile && styles.statColumnMobile]}
+            >
+              <View style={styles.statIconWrap}>
+                <Ionicons name="heart-outline" size={22} color={COLORS.heart} />
+              </View>
+              <View style={[styles.statTextWrap, isMobile && { alignItems: 'center' }]}>
+                <Text style={styles.statLabel} numberOfLines={2}>
+                  Shortlisted
+                </Text>
+                <Text style={styles.statNumber}>{formatStatCount(shortCount)}</Text>
+              </View>
             </Pressable>
           </Card>
         </View>
@@ -205,7 +310,12 @@ export default function HomeScreen() {
             <CategoryCard
               key={cat.id}
               name={cat.name}
-              imageUrl={cat.thumbnail_url || cat.image_url}
+              imageUrl={
+                cat.resolved_thumbnail ||
+                cat.thumbnail_url ||
+                cat.image_url ||
+                cat.image_path
+              }
               count={cat.products_count ?? cat.product_count}
               horizontal
               width={138}
@@ -224,7 +334,12 @@ export default function HomeScreen() {
             <CategoryCard
               key={cat.id}
               name={cat.name}
-              imageUrl={cat.thumbnail_url || cat.image_url}
+              imageUrl={
+                cat.resolved_thumbnail ||
+                cat.thumbnail_url ||
+                cat.image_url ||
+                cat.image_path
+              }
               count={cat.products_count ?? cat.product_count}
               width={desktopCardW}
               onPress={() =>
@@ -398,60 +513,61 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  quickTileMobile: {
+    paddingHorizontal: 5,
+    paddingVertical: 12,
+    minHeight: 86,
+  },
+  quickTileLabelMobile: {
+    fontSize: 11,
+  },
   statsCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
-  statMain: {
+  statColumn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    flex: 1,
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 4,
   },
-  statHeartCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: COLORS.tilePink,
+  statColumnMobile: {
+    flexDirection: 'column',
+    gap: 4,
+  },
+  statIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  statTextWrap: {
+    flexShrink: 1,
+  },
   statLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textMuted,
     fontWeight: '600',
     fontFamily: FONT_FAMILY,
   },
   statNumber: {
-    fontSize: 22,
+    fontSize: 19,
     fontWeight: '800',
     color: COLORS.textDark,
     fontFamily: FONT_FAMILY,
+    marginTop: 1,
   },
   statDivider: {
     width: 1,
-    height: 36,
+    height: 34,
     backgroundColor: COLORS.border,
-    marginHorizontal: 14,
-  },
-  emptyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: COLORS.primaryLight,
-    borderRadius: RADII.pill,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minHeight: 40,
-  },
-  emptyBtnText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.primaryText,
-    fontFamily: FONT_FAMILY,
+    marginHorizontal: 4,
   },
   sectionHeader: {
     flexDirection: 'row',

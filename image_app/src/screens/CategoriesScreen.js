@@ -1,7 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../api';
+import { useFocusEffect } from '@react-navigation/native';
+import {
+  enrichCategoriesWithProducts,
+  fetchAllCategories,
+  fetchAllProducts,
+} from '../api';
 import { useAuth } from '../auth';
 import { COLORS, FONT_FAMILY, RADII, SHADOWS, useResponsive } from '../theme';
 import {
@@ -16,9 +21,24 @@ export default function CategoriesScreen({ navigation }) {
   const [items, setItems] = useState([]);
   const { categoryCols, contentWidth } = useResponsive();
 
-  useEffect(() => {
-    api.categories(token).then((r) => setItems(r.data || [])).catch(() => {});
-  }, [token]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      (async () => {
+        const [catRes, prodRes] = await Promise.allSettled([
+          fetchAllCategories(token),
+          fetchAllProducts(token),
+        ]);
+        if (!active) return;
+        const rawCats = catRes.status === 'fulfilled' ? catRes.value : [];
+        const rawProds = prodRes.status === 'fulfilled' ? prodRes.value : [];
+        setItems(enrichCategoriesWithProducts(rawCats, rawProds));
+      })();
+      return () => {
+        active = false;
+      };
+    }, [token])
+  );
 
   const gap = 12;
   const cardWidth = Math.floor((contentWidth - gap * (categoryCols - 1)) / categoryCols);
@@ -66,7 +86,12 @@ export default function CategoriesScreen({ navigation }) {
             <CategoryCard
               key={cat.id}
               name={cat.name}
-              imageUrl={cat.thumbnail_url || cat.image_url}
+              imageUrl={
+                cat.resolved_thumbnail ||
+                cat.thumbnail_url ||
+                cat.image_url ||
+                cat.image_path
+              }
               count={cat.products_count ?? cat.product_count}
               width={cardWidth}
               onPress={() => navigation.navigate('SubCategories', { category: cat })}

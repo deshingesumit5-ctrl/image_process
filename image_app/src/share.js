@@ -1,11 +1,12 @@
-import { Platform, Share } from "react-native";
-import { rewriteMediaUrl } from "./api";
+import { NativeModules, Platform, Share, TurboModuleRegistry } from "react-native";
+import { resolveMediaUrl, rewriteMediaUrl } from "./api";
 
 let FileSystem = null;
 let Sharing = null;
 let IntentLauncher = null;
 let MediaLibrary = null;
 let RNShare = null;
+let NativeRNShare = null;
 let Clipboard = null;
 
 const toFileUri = (p) =>
@@ -28,6 +29,10 @@ if (Platform.OS !== "web") {
   }
   try {
     RNShare = require("react-native-share").default;
+    NativeRNShare =
+      (TurboModuleRegistry && TurboModuleRegistry.get("RNShare")) ||
+      NativeModules?.RNShare ||
+      null;
   } catch (e) {
     console.log("[SHARE] react-native-share load failed:", e && e.message);
   }
@@ -40,9 +45,21 @@ if (Platform.OS !== "web") {
 
 export async function persistLocalImage(uri) {
   if (!uri) return uri;
-  const source = rewriteMediaUrl(uri);
+  const source = resolveMediaUrl(uri, { corsSafe: true });
   if (Platform.OS === "web" || !FileSystem) {
     return source;
+  }
+  if (/^data:image\//i.test(source)) {
+    const extMatch = source.match(/^data:image\/(\w+);base64,/i);
+    const safeExt = extMatch?.[1] === "jpeg" ? "jpg" : extMatch?.[1] || "png";
+    const base64 = source.replace(/^data:image\/\w+;base64,/, "");
+    const cacheDir =
+      FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
+    const dest = `${cacheDir}img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${safeExt}`;
+    await FileSystem.writeAsStringAsync(dest, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return dest;
   }
   const ext = (source.split("?")[0].split(".").pop() || "jpg").toLowerCase();
   const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "jpg";
@@ -52,6 +69,9 @@ export async function persistLocalImage(uri) {
   try {
     if (source.startsWith("http://") || source.startsWith("https://")) {
       const downloaded = await FileSystem.downloadAsync(source, dest);
+      if (downloaded.status && downloaded.status >= 400) {
+        throw new Error(`Download failed (${downloaded.status})`);
+      }
       return downloaded.uri;
     }
     await FileSystem.copyAsync({ from: source, to: dest });
@@ -74,52 +94,82 @@ export async function saveImagesToGallery(uris = []) {
       const url =
         raw.startsWith("data:") || raw.startsWith("blob:")
           ? raw
-          : rewriteMediaUrl(raw);
+          : resolveMediaUrl(raw, { corsSafe: true });
+      const filename = `richboy-product-${Date.now()}-${i + 1}.png`;
       try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.href = url;
-        link.download = `product-page-${Date.now()}-${i + 1}.png`;
-        link.target = "_blank";
+        link.href = objectUrl;
+        link.download = filename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
         saved += 1;
       } catch (e) {
-        window.open(url, "_blank");
-        saved += 1;
+        try {
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = filename;
+          link.target = "_blank";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          saved += 1;
+        } catch {
+          window.open(url, "_blank");
+          saved += 1;
+        }
       }
     }
     return saved;
   }
 
+  let permissionDenied = false;
   if (MediaLibrary) {
     try {
-      const perm = await MediaLibrary.requestPermissionsAsync(true);
+      let perm = await MediaLibrary.getPermissionsAsync(true);
+      if (!perm.granted) {
+        perm = await MediaLibrary.requestPermissionsAsync(true);
+      }
       if (perm.granted) {
         let savedCount = 0;
         for (let i = 0; i < cleanUris.length; i += 1) {
           const local = toFileUri(
             await persistLocalImage(toFileUri(cleanUris[i])),
           );
-          if (!local) continue;
+          if (!local || /^https?:/i.test(local)) continue;
           await MediaLibrary.saveToLibraryAsync(local);
           savedCount += 1;
         }
         if (savedCount) return savedCount;
+      } else {
+        permissionDenied = true;
       }
     } catch (e) {
-      console.log("[MEDIA] save failed, using folder picker:", e && e.message);
+      console.log("[MEDIA] save failed, trying SAF fallback:", e && e.message);
     }
   }
 
   // Fallback: let the user pick a folder (e.g. Pictures) via Android SAF
   const SAF = FileSystem && FileSystem.StorageAccessFramework;
   if (Platform.OS !== "android" || !SAF) {
-    throw new Error("Could not save to the gallery on this device.");
+    throw new Error(
+      permissionDenied
+        ? "Gallery permission denied. Please allow photo access in app settings."
+        : "Could not save to the gallery on this device.",
+    );
   }
   const dir = await SAF.requestDirectoryPermissionsAsync();
   if (!dir.granted) {
-    throw new Error("Choose a folder (for example Pictures) to save the image.");
+    throw new Error(
+      permissionDenied
+        ? "Gallery permission is required, or choose a folder (e.g. Pictures) to save."
+        : "Choose a folder (for example Pictures) to save the image.",
+    );
   }
   let n = 0;
   for (let i = 0; i < cleanUris.length; i += 1) {
@@ -141,8 +191,11 @@ export async function saveImagesToGallery(uris = []) {
 }
 
 export async function shareCaptionAndImages(caption, imageUrls = []) {
-  const text = caption || "Ramchandra Dresses Products";
-  const cleanUrls = imageUrls.filter(Boolean).map(rewriteMediaUrl);
+  const text = caption || "Richboy Collection";
+  const cleanUrls = imageUrls
+    .filter(Boolean)
+    .map((u) => resolveMediaUrl(u, { corsSafe: true }));
+
   if (Platform.OS === "web") {
     const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
     let blob = null;
@@ -152,26 +205,24 @@ export async function shareCaptionAndImages(caption, imageUrls = []) {
         const src =
           raw.startsWith("data:") || raw.startsWith("blob:")
             ? raw
-            : rewriteMediaUrl(raw);
+            : resolveMediaUrl(raw, { corsSafe: true });
         blob = await (await fetch(src)).blob();
-        const file = new File([blob], "product-page.png", {
-          type: "image/png",
+        const file = new File([blob], "richboy-catalogue.png", {
+          type: blob.type || "image/png",
         });
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          // WhatsApp Desktop drops text sent with files, so copy the caption
-          // and paste it (Ctrl+V) into the "Add a message" box.
           try {
             await navigator.clipboard.writeText(text);
           } catch (e) {
             console.log("[SHARE] caption copy failed:", e && e.message);
           }
           await navigator.share({ files: [file], text });
-          return;
+          return { captionCopied: true, sharedToWhatsApp: true };
         }
       }
     } catch (e) {
       console.log("[SHARE] web share failed:", e && e.name, e && e.message);
-      if (e && e.name === "AbortError") return;
+      if (e && e.name === "AbortError") return { captionCopied: false, sharedToWhatsApp: false };
     }
 
     // Fallback: copy the image so it can be pasted into WhatsApp
@@ -189,85 +240,160 @@ export async function shareCaptionAndImages(caption, imageUrls = []) {
     if (blob && !copied) {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "product-page.png";
+      a.download = "richboy-catalogue.png";
       a.click();
     }
     window.open(waUrl, "_blank");
     setTimeout(() => {
       window.alert(
         copied
-          ? "Image copied. In WhatsApp, press Ctrl+V to paste the image."
-          : "Image downloaded. In WhatsApp, attach it from your Downloads folder.",
+          ? "Catalogue image copied. In WhatsApp, press Ctrl+V to paste the image."
+          : "Catalogue image downloaded. In WhatsApp, attach it from your Downloads folder.",
       );
     }, 300);
-    return;
+    return { captionCopied: false, sharedToWhatsApp: true };
   }
 
   const files = [];
-  if (FileSystem) {
-    const cacheDir =
-      FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
-    for (let i = 0; i < cleanUrls.length; i += 1) {
-      // Use a per-iteration unique timestamp so simultaneous iterations never
-      // produce the same destination filename (Date.now() alone can repeat
-      // inside the same millisecond loop tick and causes file conflicts).
-      const dest = `${cacheDir}share-${Date.now()}-${i}-${Math.random()
-        .toString(36)
-        .slice(2, 6)}.png`;
-      try {
-        if (
-          cleanUrls[i].startsWith("http://") ||
-          cleanUrls[i].startsWith("https://")
-        ) {
-          const downloaded = await FileSystem.downloadAsync(cleanUrls[i], dest);
-          const uri = toFileUri(downloaded.uri);
-          // Verify the file is fully written and non-empty before including it
-          // in the share payload. An empty or missing file makes WhatsApp drop
-          // the image and fall back to text-only, causing the intermittent bug.
-          try {
-            const info = await FileSystem.getInfoAsync(uri);
-            if (info.exists && info.size > 0) {
-              files.push(uri);
-            } else {
-              console.log("[SHARE] downloaded file not ready:", uri, info);
-            }
-          } catch (infoErr) {
-            // Cannot stat — include optimistically so share still proceeds
+  const cacheDir = FileSystem
+    ? FileSystem.cacheDirectory || FileSystem.documentDirectory || ""
+    : "";
+  for (let i = 0; i < cleanUrls.length; i += 1) {
+    const dest = `${cacheDir}share-${Date.now()}-${i}-${Math.random()
+      .toString(36)
+      .slice(2, 6)}.png`;
+    try {
+      const target = cleanUrls[i];
+      if (FileSystem && /^data:image\//i.test(target)) {
+        const base64 = target.replace(/^data:image\/\w+;base64,/, "");
+        await FileSystem.writeAsStringAsync(dest, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        files.push(toFileUri(dest));
+      } else if (
+        FileSystem &&
+        (target.startsWith("http://") || target.startsWith("https://"))
+      ) {
+        const downloaded = await FileSystem.downloadAsync(target, dest);
+        const uri = toFileUri(downloaded.uri);
+        try {
+          const info = await FileSystem.getInfoAsync(uri);
+          if (info.exists && info.size > 0) {
             files.push(uri);
+          } else {
+            console.log("[SHARE] downloaded file not ready:", uri, info);
+          }
+        } catch {
+          files.push(uri);
+        }
+      } else {
+        const localUri = toFileUri(target);
+        if (FileSystem && cacheDir && !localUri.startsWith(cacheDir)) {
+          try {
+            await FileSystem.copyAsync({ from: localUri, to: dest });
+            files.push(toFileUri(dest));
+          } catch {
+            files.push(localUri);
           }
         } else {
-          files.push(toFileUri(cleanUrls[i]));
+          files.push(localUri);
         }
-      } catch (e) {
-        console.log("[SHARE] download failed:", e && e.message);
       }
+    } catch (e) {
+      console.log("[SHARE] download failed:", e && e.message);
     }
   }
+
+  let captionCopied = false;
+  try {
+    if (Clipboard) {
+      await Clipboard.setStringAsync(text);
+      captionCopied = true;
+    }
+  } catch (e) {}
+
+  console.log("[SHARE] files:", files.length, "RNShare:", !!RNShare, "native:", !!NativeRNShare);
+  if (RNShare && NativeRNShare?.shareSingle && Platform.OS === "android" && files.length > 1) {
+    // WhatsApp drops caption on multi-image share, so send one by one with caption
+    for (const f of files) {
+      try {
+        await NativeRNShare.shareSingle({
+          url: f,
+          social: RNShare.Social.WHATSAPP,
+          message: text,
+          type: "image/png",
+          failOnCancel: false,
+        });
+      } catch (e) {
+        console.log("[SHARE] multi single failed:", e && e.message);
+      }
+    }
+    return { captionCopied, sharedToWhatsApp: true };
+  }
+
   if (RNShare && files.length) {
-    try {
-      if (Clipboard) await Clipboard.setStringAsync(text); // safety net: paste if WhatsApp drops caption
-    } catch (e) {}
-    // Build media payload: single verified file → url, multiple → urls
-    const media =
-      files.length === 1 ? { url: files[0] } : { urls: files };
-    // shareSingle targets WhatsApp directly via package intent:
-    //   EXTRA_STREAM → image (shown in WhatsApp compose preview)
-    //   EXTRA_TEXT   → message (pre-fills the "Add a caption…" field)
-    // open() (system share sheet) is NOT used as fallback here because it
-    // provably strips EXTRA_STREAM and sends only text to WhatsApp.
-    // If shareSingle throws (e.g. WhatsApp already foregrounded from a prior
-    // tap), fall through to the Share.share last-resort below.
-    try {
-      await RNShare.shareSingle({
-        ...media,
-        social: RNShare.Social.WHATSAPP,
-        message: text,
-        type: "image/png",
-        failOnCancel: false,
-      });
-      return;
-    } catch (e) {
-      console.log("[SHARE] whatsapp direct failed:", e && e.message);
+    if (Platform.OS === "android" && files.length === 1) {
+      let waInstalled = false;
+      let waBusinessInstalled = false;
+      try {
+        waInstalled = Boolean(
+          (await RNShare.isPackageInstalled("com.whatsapp"))?.isInstalled,
+        );
+      } catch {}
+      if (!waInstalled) {
+        try {
+          waBusinessInstalled = Boolean(
+            (await RNShare.isPackageInstalled("com.whatsapp.w4b"))?.isInstalled,
+          );
+        } catch {}
+      }
+
+          console.log("[SHARE] wa:", waInstalled, "w4b:", waBusinessInstalled, "shareSingle:", !!RNShare?.shareSingle);
+      if (waInstalled || waBusinessInstalled) {
+        try {
+          // Pass `url` without `urls` so Android ShareIntent uses ACTION_SEND
+          // (ACTION_SEND_MULTIPLE drops EXTRA_TEXT caption in WhatsApp).
+                 await RNShare.shareSingle({
+            url: files[0],
+            social: waInstalled
+              ? RNShare.Social.WHATSAPP
+              : RNShare.Social.WHATSAPPBUSINESS,
+            message: text,
+            type: "image/png",
+            failOnCancel: false,
+          });
+          return { captionCopied, sharedToWhatsApp: true };
+        } catch (e) {
+          console.log("[SHARE] whatsapp single failed:", e && e.message);
+        }
+      }
+
+      try {
+        // RNShare.open on Android keeps ACTION_SEND + EXTRA_STREAM + EXTRA_TEXT together
+        await RNShare.open({
+          url: files[0],
+          message: text,
+          type: "image/png",
+          failOnCancel: false,
+        });
+        return { captionCopied, sharedToWhatsApp: true };
+      } catch (e) {
+        console.log("[SHARE] rnshare open failed:", e && e.message);
+      }
+    } else {
+      const media = files.length === 1 ? { url: files[0] } : { urls: files };
+      try {
+        await RNShare.shareSingle({
+          ...media,
+          social: RNShare.Social.WHATSAPP,
+          message: text,
+          type: "image/png",
+          failOnCancel: false,
+        });
+        return { captionCopied, sharedToWhatsApp: true };
+      } catch (e) {
+        console.log("[SHARE] whatsapp direct failed:", e && e.message);
+      }
     }
   }
 
@@ -278,6 +404,7 @@ export async function shareCaptionAndImages(caption, imageUrls = []) {
       dialogTitle: "Share product image",
     });
   }
+  return { captionCopied, sharedToWhatsApp: false };
 }
 
 const txt = (v) => {
@@ -289,44 +416,416 @@ const txt = (v) => {
     );
   return String(v).trim();
 };
+
+const uniq = (list) => [...new Set(list.map((s) => String(s || "").trim()).filter(Boolean))];
+
 const toList = (v) =>
   (Array.isArray(v) ? v : String(v ?? "").split(/[,|]/))
     .map(txt)
     .filter(Boolean);
 
-// One caption block per product, using that product's own master data
-export function buildProductCaption(products = [], fallbackContact = "") {
-  return products
-    .map((p) => {
-      const contact =
-        txt(
-          p.contact ??
-            p.contact_number ??
-            p.phone ??
-            p.mobile ??
-            p.company?.phone ??
-            p.company?.contact,
-        ) || txt(fallbackContact);
-      const sizes = toList(p.sizes ?? p.size ?? p.available_sizes);
-      const sizeRates = (Array.isArray(p.sizes) ? p.sizes : [])
-        .map((s) => Number(s && s.rate))
-        .filter((n) => n > 0);
-      const rate = sizeRates.length
-        ? Math.min(...sizeRates)
-        : Number(p.rate ?? p.price ?? p.min_rate ?? p.rate_from);
-      const group = txt(p.group ?? p.category ?? p.group_name);
-      return [
-        "Ramchandra Dresses",
-        p.design_number ? `Design No.: ${p.design_number}` : "",
-        txt(p.name ?? p.title) ? `Product: ${txt(p.name ?? p.title)}` : "",
-        sizes.length ? `Available Sizes: ${sizes.join(", ")}` : "",
-        group ? `Group: ${group}` : "",
-        rate > 0 ? `Rate: ₹${rate} onwards` : "",
-        contact ? `Contact: ${contact}` : "",
-        "Thank you for your enquiry. Please contact us for bulk orders and the latest collection.",
-      ]
-        .filter(Boolean)
-        .join("\n");
-    })
-    .join("\n\n");
+export function deriveCollectionName(products = []) {
+  const valid = (products || []).filter(Boolean);
+  for (const p of valid) {
+    const explicit = txt(p.collection_name ?? p.collection);
+    if (explicit) return explicit;
+  }
+  const subNames = uniq(valid.map((p) => txt(p.sub_category?.name ?? p.sub_category)));
+  if (subNames.length === 1) {
+    const sub = subNames[0];
+    return /collection$/i.test(sub) ? sub : `${sub} Collection`;
+  }
+  const catNames = uniq(valid.map((p) => txt(p.category?.name ?? p.category)));
+  if (catNames.length === 1) {
+    const cat = catNames[0];
+    return /collection$/i.test(cat) ? cat : `${cat} Collection`;
+  }
+  if (subNames.length > 1) return subNames.join(" & ");
+  if (catNames.length > 1) return catNames.join(" & ");
+  return "Richboy Collection";
+}
+
+export function extractCatalogMetadata(itemsOrProducts = []) {
+  const normalized = (itemsOrProducts || []).filter(Boolean).map((entry) => {
+    if (entry.product) {
+      return {
+        product: entry.product,
+        designNumber: entry.designNumber || entry.product?.design_number,
+      };
+    }
+    return {
+      product: entry,
+      designNumber: entry.designNumber || entry.design_number,
+    };
+  });
+
+  const products = normalized.map((n) => n.product).filter(Boolean);
+  const collectionName = deriveCollectionName(products);
+
+  const designNos = uniq(
+    normalized.map((n) => n.designNumber || n.product?.design_number),
+  );
+  const colours = uniq(
+    products.flatMap((p) =>
+      String(p.colour ?? p.color ?? "")
+        .split(/[/,]/)
+        .map((c) => c.trim())
+        .filter(Boolean),
+    ),
+  );
+  const sizes = uniq(
+    products.flatMap((p) =>
+      (Array.isArray(p.sizes) ? p.sizes : toList(p.sizes ?? p.size)).map((s) =>
+        typeof s === "object" ? txt(s.size ?? s.name) : txt(s),
+      ),
+    ),
+  );
+  const groups = uniq(
+    products.map((p) =>
+      txt(p.group ?? p.group_name ?? p.category?.name ?? p.category),
+    ),
+  );
+  const rates = products.flatMap((p) => {
+    const sizeRates = (Array.isArray(p.sizes) ? p.sizes : [])
+      .map((s) => Number(s?.rate ?? s?.price))
+      .filter((n) => !Number.isNaN(n) && n > 0);
+    if (sizeRates.length) return sizeRates;
+    const direct = Number(p.rate ?? p.price);
+    return !Number.isNaN(direct) && direct > 0 ? [direct] : [];
+  });
+  let price = "";
+  if (rates.length) {
+    const min = Math.min(...rates);
+    const max = Math.max(...rates);
+    price = min === max ? `₹ ${min}` : `₹ ${min} - ₹ ${max}`;
+  }
+
+  return {
+    collectionName,
+    designNos,
+    colours,
+    sizes,
+    groups,
+    price,
+    products,
+  };
+}
+
+export function buildCatalogCaption(itemsOrProducts = [], countOverride) {
+  const { collectionName, designNos, colours, sizes, price } =
+    extractCatalogMetadata(itemsOrProducts);
+  const count =
+    countOverride !== undefined && countOverride !== null
+      ? countOverride
+      : Math.max(itemsOrProducts.length, designNos.length, 1);
+
+  const lines = [
+    "Hi,",
+    `Please find the ${count} processed product ${count === 1 ? "design" : "designs"} from our ${collectionName}.`,
+  ];
+
+  const metaLines = [];
+  if (designNos.length) {
+    metaLines.push(`Design Nos.: ${designNos.join(", ")}`);
+  }
+  if (colours.length) {
+    metaLines.push(`Colours: ${colours.join(", ")}`);
+  }
+  if (sizes.length) {
+    metaLines.push(`Sizes: ${sizes.join(" | ")}`);
+  }
+  if (price) {
+    metaLines.push(`Price: ${price}`);
+  }
+
+  if (metaLines.length) {
+    lines.push("", ...metaLines);
+  }
+  lines.push("", "Please review and let us know your selection.");
+  return lines.join("\n");
+}
+
+// Kept for backward compatibility; delegates to the new catalog caption format
+export function buildProductCaption(products = [], _fallbackContact = "") {
+  return buildCatalogCaption(products);
+}
+
+function loadHtmlImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = (err) => reject(err);
+    img.src = src;
+  });
+}
+
+function drawRoundedRect(ctx, x, y, w, h, r) {
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+/**
+ * Web-only HTML5 Canvas generator for the Richboy Collection composite catalogue card.
+ * Used because react-native-view-shot on web requires optional html2canvas-pro.
+ */
+export async function renderCatalogCardToDataUrl(items = []) {
+  if (Platform.OS !== "web" || typeof document === "undefined") {
+    throw new Error("Canvas rendering is only available on web.");
+  }
+  const list = (items || []).filter((it) => it && (it.uri || it.url));
+  if (!list.length) {
+    throw new Error("Select at least one image to generate the catalogue card.");
+  }
+
+  const meta = extractCatalogMetadata(list);
+  const cols = list.length === 1 ? 1 : 2;
+  const rowsCount = Math.ceil(list.length / cols);
+
+  const width = 920;
+  const pad = 42;
+  const innerPad = 24;
+  const headerH = 112;
+  const gridGap = 20;
+  const innerW = width - pad * 2 - innerPad * 2;
+  const cardW = cols === 1 ? innerW : Math.floor((innerW - gridGap) / 2);
+  const cardH = cols === 1 ? Math.round(cardW * 0.92) : Math.round(cardW * 1.18);
+  const gridH = rowsCount * cardH + Math.max(0, rowsCount - 1) * gridGap;
+
+  const metaRows = [
+    meta.colours.length ? { label: "Colours:", value: meta.colours.join(" / ") } : null,
+    meta.sizes.length ? { label: "Sizes:", value: meta.sizes.join(" | ") } : null,
+    meta.price ? { label: "Price:", value: meta.price } : null,
+    meta.groups.length ? { label: "Group:", value: meta.groups.join(", ") } : null,
+  ].filter(Boolean);
+
+  const infoBoxH = 74 + metaRows.length * 46;
+  const footerH = 44;
+  const height = pad * 2 + headerH + gridH + 26 + infoBoxH + footerH;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+
+  // Outer warm cream background
+  ctx.fillStyle = "#FCF7EC";
+  ctx.fillRect(0, 0, width, height);
+
+  // Outer & inner ornate borders
+  drawRoundedRect(ctx, 16, 16, width - 32, height - 32, 26);
+  ctx.strokeStyle = "#DFCFB5";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  drawRoundedRect(ctx, 28, 28, width - 56, height - 56, 20);
+  ctx.strokeStyle = "#C9A86A";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Corner flourishes
+  const corners = [
+    [42, 42, 1, 1],
+    [width - 42, 42, -1, 1],
+    [42, height - 42, 1, -1],
+    [width - 42, height - 42, -1, -1],
+  ];
+  ctx.strokeStyle = "#8C6D3F";
+  ctx.lineWidth = 2.5;
+  corners.forEach(([cx, cy, sx, sy]) => {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + sy * 22);
+    ctx.lineTo(cx, cy);
+    ctx.lineTo(cx + sx * 22, cy);
+    ctx.stroke();
+  });
+
+  // Crown emblem
+  const crownX = width / 2;
+  const crownY = 76;
+  ctx.fillStyle = "#8C6D3F";
+  ctx.beginPath();
+  ctx.moveTo(crownX - 20, crownY);
+  ctx.lineTo(crownX - 24, crownY - 18);
+  ctx.lineTo(crownX - 10, crownY - 9);
+  ctx.lineTo(crownX, crownY - 24);
+  ctx.lineTo(crownX + 10, crownY - 9);
+  ctx.lineTo(crownX + 24, crownY - 18);
+  ctx.lineTo(crownX + 20, crownY);
+  ctx.closePath();
+  ctx.fill();
+
+  // Header title + divider lines
+  ctx.fillStyle = "#5B3A1E";
+  ctx.font = 'bold 34px Georgia, "Times New Roman", serif';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const brandTitle = "Richboy Collection";
+  const titleMetrics = ctx.measureText(brandTitle);
+  const titleHalf = titleMetrics.width / 2 + 20;
+  ctx.fillText(brandTitle, width / 2, 112);
+
+  ctx.strokeStyle = "#DFCFB5";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pad + innerPad, 112);
+  ctx.lineTo(width / 2 - titleHalf, 112);
+  ctx.moveTo(width / 2 + titleHalf, 112);
+  ctx.lineTo(width - pad - innerPad, 112);
+  ctx.stroke();
+
+  // Load and draw product images
+  const startY = pad + headerH;
+  const loadedImages = await Promise.all(
+    list.map(async (it) => {
+      const raw = it.uri || it.url;
+      const corsSrc =
+        raw.startsWith("data:") || raw.startsWith("blob:")
+          ? raw
+          : resolveMediaUrl(raw, { corsSafe: true });
+      try {
+        return await loadHtmlImage(corsSrc);
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  list.forEach((it, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = pad + innerPad + col * (cardW + gridGap);
+    const y = startY + row * (cardH + gridGap);
+
+    drawRoundedRect(ctx, x, y, cardW, cardH, 20);
+    ctx.fillStyle = "#F6EFE2";
+    ctx.fill();
+    ctx.strokeStyle = "#DFCFB5";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const img = loadedImages[idx];
+    if (img) {
+      ctx.save();
+      drawRoundedRect(ctx, x + 2, y + 2, cardW - 4, cardH - 4, 18);
+      ctx.clip();
+      const scale = Math.min((cardW - 12) / img.width, (cardH - 12) / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      ctx.drawImage(img, x + (cardW - dw) / 2, y + (cardH - dh) / 2, dw, dh);
+      ctx.restore();
+    }
+
+    const designLabel =
+      it.designNumber || it.product?.design_number || `Design ${idx + 1}`;
+    ctx.font = "bold 17px sans-serif";
+    const pillW = Math.min(cardW - 36, Math.max(96, ctx.measureText(designLabel).width + 36));
+    const pillH = 30;
+    const pillX = x + (cardW - pillW) / 2;
+    const pillY = y + cardH - pillH / 2 - 2;
+    drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 15);
+    ctx.fillStyle = "#5B3A1E";
+    ctx.fill();
+    ctx.strokeStyle = "#C9A86A";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(designLabel, x + cardW / 2, pillY + pillH / 2 + 1);
+  });
+
+  // Footer Info Card
+  const infoY = startY + gridH + 28;
+  const infoX = pad + innerPad;
+  const infoW = innerW;
+  drawRoundedRect(ctx, infoX, infoY, infoW, infoBoxH, 18);
+  ctx.fillStyle = "#FFFBF2";
+  ctx.fill();
+  ctx.strokeStyle = "#DFCFB5";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Collection pill + Design No.
+  ctx.font = "bold 17px sans-serif";
+  const colPillW = Math.min(infoW * 0.48, ctx.measureText(meta.collectionName).width + 38);
+  drawRoundedRect(ctx, infoX + 18, infoY + 16, colPillW, 36, 18);
+  ctx.fillStyle = "#5B3A1E";
+  ctx.fill();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(meta.collectionName, infoX + 18 + colPillW / 2, infoY + 34);
+
+  const designLabelList = meta.designNos.length
+    ? meta.designNos
+    : list.map((it, idx) => it.designNumber || it.product?.design_number || `Design ${idx + 1}`);
+  if (designLabelList.length) {
+    ctx.fillStyle = "#5B3A1E";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "right";
+    const prefix = "Design No.: ";
+    const valText = designLabelList.join(" / ");
+    ctx.font = "16px sans-serif";
+    const valW = ctx.measureText(valText).width;
+    ctx.fillText(valText, infoX + infoW - 18, infoY + 34);
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText(prefix, infoX + infoW - 18 - valW, infoY + 34);
+  }
+
+  ctx.strokeStyle = "#EFE6D5";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(infoX + 18, infoY + 64);
+  ctx.lineTo(infoX + infoW - 18, infoY + 64);
+  ctx.stroke();
+
+  metaRows.forEach((row, i) => {
+    const ry = infoY + 68 + i * 46;
+    if (i > 0) {
+      ctx.beginPath();
+      ctx.moveTo(infoX + 18, ry);
+      ctx.lineTo(infoX + infoW - 18, ry);
+      ctx.stroke();
+    }
+    ctx.fillStyle = "#5B3A1E";
+    ctx.font = "bold 17px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(row.label, infoX + 22, ry + 24);
+
+    ctx.fillStyle = "#2B2118";
+    ctx.font = "17px sans-serif";
+    ctx.fillText(row.value, infoX + 145, ry + 24);
+  });
+
+  // Footer dotted divider
+  const footerY = infoY + infoBoxH + 22;
+  ctx.strokeStyle = "#DFCFB5";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(pad + innerPad + 24, footerY);
+  ctx.lineTo(width / 2 - 28, footerY);
+  ctx.moveTo(width / 2 + 28, footerY);
+  ctx.lineTo(width - pad - innerPad - 24, footerY);
+  ctx.stroke();
+
+  ctx.fillStyle = "#8C6D3F";
+  [-10, 0, 10].forEach((dx) => {
+    ctx.beginPath();
+    ctx.arc(width / 2 + dx, footerY, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  return canvas.toDataURL("image/png", 1);
 }
