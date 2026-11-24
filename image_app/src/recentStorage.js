@@ -35,6 +35,74 @@ export async function saveLocalRecentProcessed(entries = []) {
   }
 }
 
+export async function removeLocalRecentProcessed(item) {
+  if (!item) return;
+  try {
+    const existing = await loadLocalRecentProcessed();
+    if (!existing.length) return;
+    const itemUrls = new Set(
+      [
+        item.url,
+        item.uri,
+        item.thumbnail_url,
+        ...(Array.isArray(item.images) ? item.images : []),
+      ]
+        .map((u) => resolveMediaUrl(u))
+        .filter(Boolean)
+    );
+    const itemId =
+      item.id !== undefined && item.id !== null ? String(item.id) : null;
+    const itemTime = item.processed_at
+      ? new Date(item.processed_at).getTime()
+      : NaN;
+
+    let removedDirect = false;
+    let next = existing.filter((entry) => {
+      const entryId =
+        entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
+      if (itemId && entryId && entryId === itemId) {
+        removedDirect = true;
+        return false;
+      }
+      const entryUrl = resolveMediaUrl(entry?.url || entry?.uri);
+      if (entryUrl && itemUrls.has(entryUrl)) {
+        removedDirect = true;
+        return false;
+      }
+      if (item.processed_at && entry?.processed_at === item.processed_at) {
+        removedDirect = true;
+        return false;
+      }
+      return true;
+    });
+
+    // If the item was matched only by timestamp (no stored URL), remove its closest timestamp match.
+    if (!removedDirect && itemUrls.size === 0 && !Number.isNaN(itemTime)) {
+      let bestIdx = -1;
+      let bestDiff = Infinity;
+      existing.forEach((entry, idx) => {
+        const entryTime = entry?.processed_at
+          ? new Date(entry.processed_at).getTime()
+          : NaN;
+        if (!Number.isNaN(entryTime)) {
+          const diff = Math.abs(itemTime - entryTime);
+          if (diff < 180000 && diff < bestDiff) {
+            bestDiff = diff;
+            bestIdx = idx;
+          }
+        }
+      });
+      if (bestIdx >= 0) {
+        next = existing.filter((_, idx) => idx !== bestIdx);
+      }
+    }
+
+    await AsyncStorage.setItem(RECENT_PROCESSED_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 /**
  * Enrich backend ProcessingLog rows with actual processed image URLs and product metadata
  * from backend fields, local AsyncStorage history, or processed Product Master images.

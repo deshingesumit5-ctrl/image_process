@@ -220,6 +220,14 @@ export const api = {
     return request(`/products?${qs}`, { token });
   },
   product: (token, id) => request(`/products/${id}`, { token }),
+  createProduct: (token, formData) =>
+    request("/products", {
+      method: "POST",
+      token,
+      body: formData,
+      isMultipart: true,
+      timeout: 60000,
+    }),
   backgrounds: (token, orientation, category_type) =>
     request(
       `/backgrounds?orientation=${orientation || ""}&category_type=${encodeURIComponent(category_type || "All")}`,
@@ -245,6 +253,8 @@ export const api = {
       body: { product_ids, shared_via: "whatsapp" },
     }),
   recentProcess: (token) => request("/process/recent", { token }),
+  deleteRecentProcess: (token, id) =>
+    request(`/process/recent/${id}`, { method: "DELETE", token }),
   process: (token, formData) =>
     request("/process", {
       method: "POST",

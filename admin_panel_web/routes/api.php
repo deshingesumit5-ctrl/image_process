@@ -27,6 +27,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/categories', [CatalogController::class, 'categories'])->middleware('module:category');
     Route::get('/categories/{category}/sub-categories', [CatalogController::class, 'subCategories'])->middleware('module:category');
     Route::get('/products', [CatalogController::class, 'products'])->middleware('module:product');
+    Route::post('/products', [CatalogController::class, 'store'])->middleware('module:product');
     Route::get('/products/{product}', [CatalogController::class, 'show'])->middleware('module:product');
 
     Route::get('/backgrounds', [BackgroundApiController::class, 'index']);
@@ -40,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/share', [ShareController::class, 'store']);
 
     Route::get('/process/recent', [ProcessController::class, 'recent']);
+    Route::delete('/process/recent/{processingLog}', [ProcessController::class, 'destroyRecent']);
     Route::post('/process', [ProcessController::class, 'store']);
     Route::post('/process/remove-background', [ProcessController::class, 'removeBackground']);
 });

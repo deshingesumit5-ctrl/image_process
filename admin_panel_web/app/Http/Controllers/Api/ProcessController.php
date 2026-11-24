@@ -22,6 +22,17 @@ class ProcessController extends Controller
         return response()->json(['data' => $logs]);
     }
 
+    public function destroyRecent(Request $request, ProcessingLog $processingLog)
+    {
+        if ((int) $processingLog->user_id !== (int) $request->user()->id) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $processingLog->delete();
+
+        return response()->json(['deleted' => true]);
+    }
+
     public function store(Request $request, ImageProcessingService $processor)
     {
         $data = $request->validate([

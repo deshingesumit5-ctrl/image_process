@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
+  BackHandler,
   Dimensions,
   Image,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -10,13 +13,19 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import ViewShot, { captureRef } from 'react-native-view-shot';
-import { api, fetchAllProducts } from '../api';
+import {
+  api,
+  fetchAllCategories,
+  fetchAllProducts,
+  fetchAllSubCategories,
+} from '../api';
 import { useAuth } from '../auth';
 import { saveLocalRecentProcessed } from '../recentStorage';
 import {
@@ -59,7 +68,12 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const { isDesktop, isMobile, isTablet, processMaxWidth, contentWidth, outputCols } =
     useResponsive();
   const [step, setStep] = useState(route.params?.step || 1);
-  const [assets, setAssets] = useState(route.params?.assets || []);
+  const [assets, setAssets] = useState(() =>
+    (route.params?.assets || []).map((a) => ({
+      ...a,
+      selected: a.selected !== false,
+    }))
+  );
   const [originals, setOriginals] = useState(
     (route.params?.assets || []).map((a) => a.uri)
   );
@@ -88,6 +102,36 @@ export default function ProcessWizardScreen({ route, navigation }) {
   const [toast, setToast] = useState(null);
   const sheetRef = useRef(null);
 
+  // Add to Product Master modal state (Step 4)
+  const [addProductOpen, setAddProductOpen] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [productError, setProductError] = useState('');
+  const [pmCategories, setPmCategories] = useState([]);
+  const [pmSubCategories, setPmSubCategories] = useState([]);
+  const [pmLoadingCats, setPmLoadingCats] = useState(false);
+  const [pmLoadingSubs, setPmLoadingSubs] = useState(false);
+  const [pmCategoryOpen, setPmCategoryOpen] = useState(false);
+  const [pmSubCategoryOpen, setPmSubCategoryOpen] = useState(false);
+  const [pmCategoryId, setPmCategoryId] = useState(null);
+  const [pmSubCategoryId, setPmSubCategoryId] = useState(null);
+  const [pmName, setPmName] = useState('');
+  const [pmDesignNumber, setPmDesignNumber] = useState('');
+  const [pmColour, setPmColour] = useState('');
+  const [pmBarcode, setPmBarcode] = useState('');
+  const [pmDisplayOrder, setPmDisplayOrder] = useState('1');
+  const [pmKeepOriginal, setPmKeepOriginal] = useState(false);
+  const [pmOrientation, setPmOrientation] = useState('vertical');
+  const [pmStatus, setPmStatus] = useState(true);
+  const [pmSizes, setPmSizes] = useState([{ size: '', rate: '' }]);
+
+  useEffect(() => {
+    if (assets.length === 0) {
+      if (current !== 0) setCurrent(0);
+    } else if (current >= assets.length) {
+      setCurrent(assets.length - 1);
+    }
+  }, [assets.length, current]);
+
   const showToast = (message, type = 'success') => {
     setToast({ message, type, key: Date.now() });
   };
@@ -101,8 +145,44 @@ export default function ProcessWizardScreen({ route, navigation }) {
   useEffect(() => {
     navigation.setOptions({
       title: step === 4 ? 'Final Output' : 'Process Images',
+      onBack: () => {
+        if (step > 1) {
+          setStep((s) => Math.max(1, s - 1));
+          return;
+        }
+        if (navigation.canGoBack()) {
+          navigation.goBack();
+        }
+      },
     });
   }, [step, navigation]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return undefined;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (cropOpen || fullScreenPreview || addProductOpen) {
+        return false;
+      }
+      if (step > 1) {
+        setStep((s) => Math.max(1, s - 1));
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [step, cropOpen, fullScreenPreview, addProductOpen]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      const actionType = e.data?.action?.type;
+      if (step <= 1 || (actionType !== 'GO_BACK' && actionType !== 'POP')) {
+        return;
+      }
+      e.preventDefault();
+      setStep((s) => Math.max(1, s - 1));
+    });
+    return unsubscribe;
+  }, [navigation, step]);
 
   useEffect(() => {
     api
@@ -130,11 +210,12 @@ export default function ProcessWizardScreen({ route, navigation }) {
       const local = [];
       for (const asset of incoming) {
         const uri = await persistLocalImage(corsSafe(asset.uri));
-        local.push({ ...asset, uri });
+        local.push({ ...asset, uri, selected: asset.selected !== false });
       }
       if (!cancelled && local.length) {
         setAssets(local);
         setOriginals(local.map((a) => a.uri));
+        setCurrent(0);
       }
     })();
     return () => {
@@ -147,10 +228,32 @@ export default function ProcessWizardScreen({ route, navigation }) {
     const local = [];
     for (const asset of picked.assets) {
       const uri = await persistLocalImage(asset.uri);
-      local.push({ ...asset, uri, composited: false });
+      local.push({ ...asset, uri, composited: false, selected: true });
     }
     setAssets((a) => [...a, ...local]);
     setOriginals((o) => [...o, ...local.map((item) => item.uri)]);
+  };
+
+  const toggleStep1Asset = (idx) => {
+    const target = assets[idx];
+    if (!target) return;
+    const currentlySelected = target.selected !== false;
+    if (currentlySelected) {
+      const nextAssets = assets.filter((_, i) => i !== idx);
+      const nextOriginals = originals.filter((_, i) => i !== idx);
+      setAssets(nextAssets);
+      setOriginals(nextOriginals);
+      setResult([]);
+      setCurrent((prev) => {
+        if (nextAssets.length === 0) return 0;
+        if (idx < prev) return prev - 1;
+        return Math.min(prev, nextAssets.length - 1);
+      });
+      return;
+    }
+    setAssets((prev) =>
+      prev.map((item, i) => (i === idx ? { ...item, selected: true } : item))
+    );
   };
 
   const addMore = async () => {
@@ -244,18 +347,19 @@ export default function ProcessWizardScreen({ route, navigation }) {
     setAssets((list) =>
       list.map((item, i) => {
         if (i !== current) return item;
-        const next = {
+        return {
           ...item,
           uri: out.uri,
           width: out.width,
           height: out.height,
           cropped: true,
           composited: false,
+          backgroundRemoved: false,
+          cutoutUri: null,
         };
-        if (item.backgroundRemoved) next.cutoutUri = out.uri;
-        return next;
       })
     );
+    setResult([]);
     setCropOpen(false);
   };
 
@@ -332,44 +436,23 @@ export default function ProcessWizardScreen({ route, navigation }) {
     });
   };
 
-  const autoRemoveAll = async () => {
-    if (busy) return;
-    if (!assets.length) {
+  const proceedToCropStep = () => {
+    const selectedIndices = [];
+    assets.forEach((a, idx) => {
+      if (a.selected !== false) selectedIndices.push(idx);
+    });
+    if (!selectedIndices.length) {
       Alert.alert('Select an image', 'Add at least one image first.');
       return;
     }
-    setBusy(true);
-    try {
-      const updated = [...assets];
-      for (let i = 0; i < updated.length; i += 1) {
-        const item = updated[i];
-        if (item.backgroundRemoved) continue;
-        const normalized = await ImageManipulator.manipulateAsync(
-          item.uri,
-          [],
-          { compress: 1, format: ImageManipulator.SaveFormat.PNG }
-        );
-        const remote = await cutOutBackground(normalized.uri, token);
-        const local = await persistLocalImage(remote);
-        updated[i] = {
-          ...item,
-          uri: local,
-          cutoutUri: local,
-          backgroundRemoved: true,
-          composited: false,
-          cropped: true,
-        };
-        setAssets([...updated]);
-      }
-      setCurrent(0);
-      setStep(3);
-    } catch (e) {
-      const msg = e.message || 'Could not remove the background of this image.';
-      if (Platform.OS === 'web') window.alert(msg);
-      else Alert.alert('Remove background failed', msg);
-    } finally {
-      setBusy(false);
+    if (selectedIndices.length !== assets.length) {
+      setAssets(selectedIndices.map((idx) => assets[idx]));
+      setOriginals(
+        selectedIndices.map((idx) => originals[idx] || assets[idx].uri)
+      );
     }
+    setCurrent(0);
+    setStep(2);
   };
 
   const runProcess = async () => {
@@ -394,6 +477,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
       if (
         asset.productImageId &&
         !asset.cutoutUri &&
+        !asset.cropped &&
         asset.uri === originals[i]
       ) {
         form.append('product_image_ids[]', String(asset.productImageId));
@@ -408,11 +492,15 @@ export default function ProcessWizardScreen({ route, navigation }) {
       setResult(rows);
       await applyResultsToAssets(rows, assets);
       if (rows.length) {
+        const rp = route.params?.products || [];
         saveLocalRecentProcessed(
           rows.map((r, i) => ({
             url: r.url,
             image_count: rows.length,
-            product: assets[i]?.product || null,
+            product:
+              assets[i]?.product ||
+              rp[i] ||
+              (rp.length === 1 ? rp[0] : null),
           }))
         );
       }
@@ -500,10 +588,14 @@ export default function ProcessWizardScreen({ route, navigation }) {
         const res = await api.process(token, form);
         const url = res.data?.[0]?.url;
         if (url) {
+          const rp = route.params?.products || [];
           remoteEntries.push({
             url,
             image_count: updated.length,
-            product: item?.product || null,
+            product:
+              item?.product ||
+              rp[i] ||
+              (rp.length === 1 ? rp[0] : null),
           });
         }
         updated[i] = url
@@ -524,26 +616,40 @@ export default function ProcessWizardScreen({ route, navigation }) {
   };
 
   const linkProduct = async (p) => {
-    let full = p;
-    try {
-      const r = await api.product(token, p.id);
-      full = r.data || r.product || r;
-    } catch (e) {}
+    const targetIdx = assets.length ? Math.min(current, assets.length - 1) : 0;
+    const nextIdx = assets.findIndex((a, i) => i !== targetIdx && !a.product);
     setAssets((list) =>
       list.map((item, i) =>
-        i === current ? { ...item, product: full } : item
+        i === targetIdx ? { ...item, product: p } : item
       )
     );
-    const next = assets.findIndex((a, i) => i !== current && !a.product);
-    if (next >= 0) setCurrent(next);
+    if (nextIdx >= 0) setCurrent(nextIdx);
+    try {
+      const r = await api.product(token, p.id);
+      const fetched = r?.data || r?.product || r;
+      if (fetched && typeof fetched === 'object') {
+        const full = { ...p, ...fetched };
+        setAssets((list) =>
+          list.map((item, i) =>
+            i === targetIdx ? { ...item, product: full } : item
+          )
+        );
+      }
+    } catch (e) {}
   };
 
   const routeProducts = route.params?.products || [];
   const rawSheetItems = (result.length ? result : assets).map((item, i) => {
-    const linkedProd =
+    const baseProd =
       assets[i]?.product ||
       routeProducts[i] ||
       (routeProducts.length === 1 ? routeProducts[0] : undefined);
+    const matchedProd = baseProd?.id
+      ? productList.find((p) => String(p.id) === String(baseProd.id))
+      : undefined;
+    const linkedProd = baseProd
+      ? { ...(matchedProd || {}), ...baseProd }
+      : undefined;
     return {
       key: String(i),
       index: i,
@@ -732,6 +838,196 @@ export default function ProcessWizardScreen({ route, navigation }) {
     }
   };
 
+  const loadSubCategoriesForModal = async (categoryId, preferredSubId = null) => {
+    if (!categoryId) {
+      setPmSubCategories([]);
+      setPmSubCategoryId(null);
+      return;
+    }
+    setPmLoadingSubs(true);
+    try {
+      const subs = await fetchAllSubCategories(token, categoryId);
+      setPmSubCategories(subs);
+      const nextSubId =
+        preferredSubId && subs.some((s) => s.id === preferredSubId)
+          ? preferredSubId
+          : subs[0]?.id || null;
+      setPmSubCategoryId(nextSubId);
+    } catch {
+      setPmSubCategories([]);
+      setPmSubCategoryId(null);
+    } finally {
+      setPmLoadingSubs(false);
+    }
+  };
+
+  const openAddToProductModal = async () => {
+    if (!selectedOutputItems.length) {
+      showToast('Select at least one processed image first.', 'error');
+      return;
+    }
+    const linkedProd =
+      selectedOutputItems.find((it) => it.product)?.product || null;
+
+    setProductError('');
+    setPmCategoryOpen(false);
+    setPmSubCategoryOpen(false);
+    setPmName('');
+    setPmDesignNumber(linkedProd?.design_number || '');
+    setPmColour('');
+    setPmBarcode('');
+    setPmDisplayOrder('1');
+    setPmKeepOriginal(false);
+    setPmOrientation(orientation === 'horizontal' ? 'horizontal' : 'vertical');
+    setPmStatus(true);
+    setPmSizes([{ size: '', rate: '' }]);
+    setAddProductOpen(true);
+
+    setPmLoadingCats(true);
+    try {
+      const cats = await fetchAllCategories(token);
+      setPmCategories(cats);
+      const linkedCatId = linkedProd?.category?.id || linkedProd?.category_id;
+      const initialCatId =
+        linkedCatId && cats.some((c) => c.id === linkedCatId)
+          ? linkedCatId
+          : cats[0]?.id || null;
+      setPmCategoryId(initialCatId);
+      const linkedSubId =
+        linkedProd?.sub_category?.id || linkedProd?.sub_category_id;
+      await loadSubCategoriesForModal(initialCatId, linkedSubId);
+    } catch {
+      setPmCategories([]);
+      setPmCategoryId(null);
+      setPmSubCategories([]);
+      setPmSubCategoryId(null);
+      setProductError('Could not load categories. Please try again.');
+    } finally {
+      setPmLoadingCats(false);
+    }
+  };
+
+  const handleSelectPmCategory = (catId) => {
+    setPmCategoryId(catId);
+    setPmCategoryOpen(false);
+    setPmSubCategoryOpen(false);
+    setPmSubCategoryId(null);
+    loadSubCategoriesForModal(catId);
+  };
+
+  const addPmSizeRow = () => {
+    setPmSizes((prev) => [...prev, { size: '', rate: '' }]);
+  };
+
+  const updatePmSizeRow = (idx, field, value) => {
+    setPmSizes((prev) =>
+      prev.map((row, i) => (i === idx ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const removePmSizeRow = (idx) => {
+    setPmSizes((prev) => {
+      if (prev.length <= 1) return [{ size: '', rate: '' }];
+      return prev.filter((_, i) => i !== idx);
+    });
+  };
+
+  const submitAddToProduct = async () => {
+    if (savingProduct) return;
+    setProductError('');
+
+    if (!pmCategoryId) {
+      setProductError('Please select a category.');
+      return;
+    }
+    if (!pmSubCategoryId) {
+      setProductError('Please select a sub-category.');
+      return;
+    }
+    if (!pmName.trim()) {
+      setProductError('Product Name is required.');
+      return;
+    }
+    if (!selectedOutputItems.length) {
+      setProductError('Select at least one processed image first.');
+      return;
+    }
+
+    const parsedOrder = pmDisplayOrder.trim()
+      ? parseInt(pmDisplayOrder.trim(), 10)
+      : 1;
+    if (Number.isNaN(parsedOrder) || parsedOrder < 1) {
+      setProductError('Display Order must be 1 or greater.');
+      return;
+    }
+
+    setSavingProduct(true);
+    try {
+      const form = new FormData();
+      form.append('category_id', String(pmCategoryId));
+      form.append('sub_category_id', String(pmSubCategoryId));
+      form.append('name', pmName.trim());
+      if (pmDesignNumber.trim()) {
+        form.append('design_number', pmDesignNumber.trim());
+      }
+      if (pmColour.trim()) {
+        form.append('colour', pmColour.trim());
+      }
+      if (pmBarcode.trim()) {
+        form.append('barcode', pmBarcode.trim());
+      }
+      form.append('display_order', String(parsedOrder));
+      form.append('keep_original', pmKeepOriginal ? '1' : '0');
+      form.append('orientation', pmOrientation);
+      form.append('status', pmStatus ? '1' : '0');
+
+      let sizeIdx = 0;
+      pmSizes.forEach((row) => {
+        const sz = String(row.size || '').trim();
+        if (!sz) return;
+        const rt = String(row.rate || '').trim();
+        form.append(`sizes[${sizeIdx}][size]`, sz);
+        form.append(`sizes[${sizeIdx}][rate]`, rt || '0');
+        sizeIdx += 1;
+      });
+
+      for (let i = 0; i < selectedOutputItems.length; i += 1) {
+        const item = selectedOutputItems[i];
+        const uploadUri =
+          Platform.OS === 'web'
+            ? corsSafe(item.uri)
+            : await persistLocalImage(item.uri);
+        await appendImageFile(form, uploadUri, i);
+      }
+
+      const createdRes = await api.createProduct(token, form);
+      const createdProduct = createdRes?.data || createdRes?.product || null;
+      if (createdProduct && typeof createdProduct === 'object') {
+        const selectedIdxSet = new Set(selectedOutputItems.map((it) => it.index));
+        setAssets((list) =>
+          list.map((item, idx) =>
+            selectedIdxSet.has(idx) ? { ...item, product: createdProduct } : item
+          )
+        );
+      }
+
+      try {
+        const refreshed = await fetchAllProducts(
+          token,
+          productQuery ? { q: productQuery } : {}
+        );
+        setProductList(refreshed);
+      } catch (e) {}
+
+      setAddProductOpen(false);
+      showToast('Product added to Product Master.');
+    } catch (e) {
+      setProductError(e.message || 'Could not save product to Product Master.');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
   const products = (() => {
     const fromRoute = route.params?.products || [];
     const fromAssets = assets.map((a) => a.product).filter(Boolean);
@@ -745,7 +1041,9 @@ export default function ProcessWizardScreen({ route, navigation }) {
     });
   })();
 
-  const preview = assets[current];
+  const safeCurrent = assets.length ? Math.min(current, assets.length - 1) : 0;
+  const preview = assets[safeCurrent];
+  const selectedStep1Assets = assets.filter((a) => a.selected !== false);
 
   const stepInfo = {
     1: {
@@ -836,7 +1134,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
       <PageContainer
         maxWidth={processMaxWidth}
         style={step4PageStyle}
-        bottomPad={step === 4 ? 200 : undefined}
+        bottomPad={step === 4 ? 220 : undefined}
       >
         <Stepper
           steps={STEPS}
@@ -859,7 +1157,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
               <View style={styles.rowInline}>
                 <Ionicons name="layers-outline" size={20} color={COLORS.primary} />
                 <Text style={styles.sectionHeading}>
-                  {assets.length} Images Selected
+                  {selectedStep1Assets.length} Images Selected
                 </Text>
               </View>
               <View style={styles.rowInline}>
@@ -890,26 +1188,48 @@ export default function ProcessWizardScreen({ route, navigation }) {
             ) : (
               <View style={[styles.grid, { gap: step1Gap }]}>
                 {assets.map((a, idx) => {
-                  const selectedCard = current === idx;
+                  const isFocused = safeCurrent === idx;
+                  const isSelected = a.selected !== false;
                   return (
-                    <Pressable
+                    <View
                       key={`${a.uri}-${idx}`}
-                      onPress={() => setCurrent(idx)}
                       style={[
                         styles.step1Card,
                         { width: step1CardW },
-                        selectedCard && styles.step1CardActive,
+                        isFocused && styles.step1CardActive,
                       ]}
                     >
-                      <Image
-                        source={{ uri: a.uri }}
-                        style={styles.step1Img}
-                        resizeMode="cover"
-                      />
-                      <View
+                      <Pressable
+                        onPress={() => setCurrent(idx)}
+                        style={{ flex: 1 }}
+                      >
+                        <Image
+                          source={{ uri: a.uri }}
+                          style={styles.step1Img}
+                          resizeMode="cover"
+                        />
+                        {(a.product?.design_number || a.product?.name) ? (
+                          <View style={styles.designTag}>
+                            <Text style={styles.designTagText} numberOfLines={1}>
+                              {a.product.design_number || a.product.name}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </Pressable>
+                      <Pressable
+                        onPress={() => toggleStep1Asset(idx)}
+                        hitSlop={8}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: isSelected }}
+                        accessibilityLabel={
+                          isSelected
+                            ? `Deselect image ${idx + 1}`
+                            : `Select image ${idx + 1}`
+                        }
                         style={[
                           styles.topRightCheck,
-                          selectedCard
+                          { zIndex: 2 },
+                          isSelected
                             ? styles.topRightCheckOn
                             : styles.topRightCheckOff,
                         ]}
@@ -917,17 +1237,10 @@ export default function ProcessWizardScreen({ route, navigation }) {
                         <Ionicons
                           name="checkmark"
                           size={14}
-                          color={selectedCard ? '#FFFFFF' : COLORS.textLight}
+                          color={isSelected ? '#FFFFFF' : COLORS.textLight}
                         />
-                      </View>
-                      {a.product?.design_number ? (
-                        <View style={styles.designTag}>
-                          <Text style={styles.designTagText}>
-                            {a.product.design_number}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </Pressable>
+                      </Pressable>
+                    </View>
                   );
                 })}
               </View>
@@ -936,10 +1249,16 @@ export default function ProcessWizardScreen({ route, navigation }) {
             {assets.length > 0 && (
               <Card>
                 <Text style={styles.subTitle}>
-                  Link product to image {current + 1} of {assets.length}
+                  Link product to image {safeCurrent + 1} of {assets.length}
                 </Text>
                 <Text style={styles.caption}>
-                  Linked: {assets[current]?.product?.design_number || 'none'}
+                  Linked:{' '}
+                  {[
+                    assets[safeCurrent]?.product?.name,
+                    assets[safeCurrent]?.product?.design_number,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || 'none'}
                 </Text>
                 <ScrollView
                   horizontal
@@ -947,7 +1266,7 @@ export default function ProcessWizardScreen({ route, navigation }) {
                   contentContainerStyle={{ gap: 8, marginTop: 10 }}
                 >
                   {productList.map((p) => {
-                    const active = assets[current]?.product?.id === p.id;
+                    const active = assets[safeCurrent]?.product?.id === p.id;
                     return (
                       <UIChip
                         key={p.id}
@@ -975,15 +1294,17 @@ export default function ProcessWizardScreen({ route, navigation }) {
                 onPress={() => {
                   setAssets([]);
                   setOriginals([]);
+                  setCurrent(0);
+                  setResult([]);
                 }}
                 style={{ flex: 0.8 }}
               />
               <PillButton
-                label={busy ? 'Removing background…' : 'Crop Images'}
+                label="Crop Images"
                 icon="crop-outline"
                 iconRight="arrow-forward"
-                disabled={busy || !assets.length}
-                onPress={autoRemoveAll}
+                disabled={busy || !selectedStep1Assets.length}
+                onPress={proceedToCropStep}
                 style={{ flex: 1.4 }}
               />
             </View>
@@ -1896,10 +2217,19 @@ export default function ProcessWizardScreen({ route, navigation }) {
       {step === 4 ? (
         <ActionBar style={styles.finalActionBar}>
           <View style={{ width: '100%', gap: 10 }}>
-            <Text style={styles.finalSelectedText}>
-              {selectedOutputItems.length}{' '}
-              {selectedOutputItems.length === 1 ? 'Image' : 'Images'} Selected
-            </Text>
+            <View style={styles.rowBetween}>
+              <Text style={styles.finalSelectedText}>
+                {selectedOutputItems.length}{' '}
+                {selectedOutputItems.length === 1 ? 'Image' : 'Images'} Selected
+              </Text>
+              <PillButton
+                label="Add to Product Master"
+                icon="add-circle-outline"
+                variant="soft"
+                compact
+                onPress={openAddToProductModal}
+              />
+            </View>
             <View style={styles.finalBottomRow}>
               <View style={styles.finalQuickIcons}>
                 <Pressable
@@ -1970,6 +2300,411 @@ export default function ProcessWizardScreen({ route, navigation }) {
             onDone={saveCrop}
           />
         ) : null}
+      </Modal>
+
+      <Modal
+        visible={addProductOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          if (!savingProduct) setAddProductOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.pmBackdrop}
+        >
+          <View style={styles.pmModalCard}>
+            <View style={styles.pmHeader}>
+              <View>
+                <Text style={styles.pmEyebrow}>CATALOG MASTER</Text>
+                <Text style={styles.pmTitle}>Add to Product Master</Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  if (!savingProduct) setAddProductOpen(false);
+                }}
+                hitSlop={8}
+                style={styles.pmCloseBtn}
+              >
+                <Ionicons name="close" size={22} color={COLORS.textDark} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.pmScrollBody}
+              keyboardShouldPersistTaps="handled"
+            >
+              {productError ? (
+                <View style={styles.pmErrorBox}>
+                  <Ionicons name="alert-circle" size={16} color={COLORS.danger} />
+                  <Text style={styles.pmErrorText}>{productError}</Text>
+                </View>
+              ) : null}
+
+              {/* Category* */}
+              <Text style={styles.pmLabel}>
+                CATEGORY <Text style={styles.pmReq}>*</Text>
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setPmCategoryOpen((v) => !v);
+                  setPmSubCategoryOpen(false);
+                }}
+                style={styles.pmSelectBtn}
+              >
+                <Text style={styles.pmSelectText} numberOfLines={1}>
+                  {pmLoadingCats
+                    ? 'Loading categories…'
+                    : pmCategories.find((c) => c.id === pmCategoryId)?.name ||
+                      'Select Category'}
+                </Text>
+                <Ionicons
+                  name={pmCategoryOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={COLORS.textMuted}
+                />
+              </Pressable>
+              {pmCategoryOpen ? (
+                <View style={styles.pmDropdownList}>
+                  {pmCategories.length === 0 ? (
+                    <Text style={styles.pmDropdownEmpty}>
+                      No active categories found.
+                    </Text>
+                  ) : (
+                    pmCategories.map((cat) => {
+                      const active = cat.id === pmCategoryId;
+                      return (
+                        <Pressable
+                          key={cat.id}
+                          onPress={() => handleSelectPmCategory(cat.id)}
+                          style={[
+                            styles.pmDropdownItem,
+                            active && styles.pmDropdownItemActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.pmDropdownItemText,
+                              active && { color: COLORS.primaryText, fontWeight: '700' },
+                            ]}
+                          >
+                            {cat.name}
+                          </Text>
+                          {active ? (
+                            <Ionicons
+                              name="checkmark"
+                              size={16}
+                              color={COLORS.primary}
+                            />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              ) : null}
+
+              {/* Sub-Category* */}
+              <Text style={styles.pmLabel}>
+                SUB-CATEGORY <Text style={styles.pmReq}>*</Text>
+              </Text>
+              <Pressable
+                onPress={() => {
+                  setPmSubCategoryOpen((v) => !v);
+                  setPmCategoryOpen(false);
+                }}
+                style={styles.pmSelectBtn}
+              >
+                <Text style={styles.pmSelectText} numberOfLines={1}>
+                  {pmLoadingSubs
+                    ? 'Loading sub-categories…'
+                    : pmSubCategories.find((s) => s.id === pmSubCategoryId)?.name ||
+                      'Select Sub-Category'}
+                </Text>
+                <Ionicons
+                  name={pmSubCategoryOpen ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={COLORS.textMuted}
+                />
+              </Pressable>
+              {pmSubCategoryOpen ? (
+                <View style={styles.pmDropdownList}>
+                  {pmSubCategories.length === 0 ? (
+                    <Text style={styles.pmDropdownEmpty}>
+                      No sub-categories for selected category.
+                    </Text>
+                  ) : (
+                    pmSubCategories.map((sub) => {
+                      const active = sub.id === pmSubCategoryId;
+                      return (
+                        <Pressable
+                          key={sub.id}
+                          onPress={() => {
+                            setPmSubCategoryId(sub.id);
+                            setPmSubCategoryOpen(false);
+                          }}
+                          style={[
+                            styles.pmDropdownItem,
+                            active && styles.pmDropdownItemActive,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.pmDropdownItemText,
+                              active && { color: COLORS.primaryText, fontWeight: '700' },
+                            ]}
+                          >
+                            {sub.name}
+                          </Text>
+                          {active ? (
+                            <Ionicons
+                              name="checkmark"
+                              size={16}
+                              color={COLORS.primary}
+                            />
+                          ) : null}
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              ) : null}
+
+              {/* Product Name* */}
+              <Text style={styles.pmLabel}>
+                PRODUCT NAME <Text style={styles.pmReq}>*</Text>
+              </Text>
+              <TextInput
+                value={pmName}
+                onChangeText={setPmName}
+                placeholder="e.g. Traffic Shorts"
+                placeholderTextColor={COLORS.textLight}
+                style={styles.pmInput}
+              />
+
+              {/* Design Number, Colour */}
+              <View style={styles.pmTwoCol}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pmLabel}>DESIGN NUMBER</Text>
+                  <TextInput
+                    value={pmDesignNumber}
+                    onChangeText={setPmDesignNumber}
+                    placeholder="e.g. 92093"
+                    placeholderTextColor={COLORS.textLight}
+                    style={styles.pmInput}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pmLabel}>COLOUR</Text>
+                  <TextInput
+                    value={pmColour}
+                    onChangeText={setPmColour}
+                    placeholder="e.g. Mint Green"
+                    placeholderTextColor={COLORS.textLight}
+                    style={styles.pmInput}
+                  />
+                </View>
+              </View>
+
+              {/* Barcode, Display Order */}
+              <View style={styles.pmTwoCol}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pmLabel}>BARCODE</Text>
+                  <TextInput
+                    value={pmBarcode}
+                    onChangeText={setPmBarcode}
+                    placeholder="e.g. 890123456"
+                    placeholderTextColor={COLORS.textLight}
+                    style={styles.pmInput}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pmLabel}>DISPLAY ORDER</Text>
+                  <TextInput
+                    value={pmDisplayOrder}
+                    onChangeText={setPmDisplayOrder}
+                    keyboardType="number-pad"
+                    placeholder="1"
+                    placeholderTextColor={COLORS.textLight}
+                    style={styles.pmInput}
+                  />
+                </View>
+              </View>
+
+              {/* Keep As Original */}
+              <Text style={styles.pmLabel}>KEEP AS ORIGINAL</Text>
+              <View style={styles.pmSegRow}>
+                <Pressable
+                  onPress={() => setPmKeepOriginal(false)}
+                  style={[
+                    styles.pmSegBtn,
+                    !pmKeepOriginal && styles.pmSegBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pmSegText,
+                      !pmKeepOriginal && styles.pmSegTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    No (Process Background)
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setPmKeepOriginal(true)}
+                  style={[
+                    styles.pmSegBtn,
+                    pmKeepOriginal && styles.pmSegBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pmSegText,
+                      pmKeepOriginal && styles.pmSegTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Yes
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Orientation & Status */}
+              <Text style={styles.pmLabel}>ORIENTATION</Text>
+              <View style={styles.pmSegRow}>
+                <Pressable
+                  onPress={() => setPmOrientation('vertical')}
+                  style={[
+                    styles.pmSegBtn,
+                    pmOrientation === 'vertical' && styles.pmSegBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pmSegText,
+                      pmOrientation === 'vertical' && styles.pmSegTextActive,
+                    ]}
+                  >
+                    Vertical
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setPmOrientation('horizontal')}
+                  style={[
+                    styles.pmSegBtn,
+                    pmOrientation === 'horizontal' && styles.pmSegBtnActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.pmSegText,
+                      pmOrientation === 'horizontal' && styles.pmSegTextActive,
+                    ]}
+                  >
+                    Horizontal
+                  </Text>
+                </Pressable>
+              </View>
+
+              <Pressable
+                onPress={() => setPmStatus((s) => !s)}
+                style={styles.pmStatusRow}
+              >
+                <View
+                  style={[
+                    styles.pmStatusCheck,
+                    pmStatus ? styles.pmStatusCheckOn : styles.pmStatusCheckOff,
+                  ]}
+                >
+                  {pmStatus ? (
+                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={styles.pmStatusLabel}>Status: Active</Text>
+              </Pressable>
+
+              {/* Sizes & Rates */}
+              <View style={[styles.rowBetween, { marginTop: 10, marginBottom: 6 }]}>
+                <Text style={[styles.pmLabel, { marginTop: 0, marginBottom: 0 }]}>
+                  SIZES & RATES
+                </Text>
+                <Pressable onPress={addPmSizeRow}>
+                  <Text style={styles.pmAddSizeText}>+ Add More Size</Text>
+                </Pressable>
+              </View>
+
+              <View style={{ gap: 8 }}>
+                {pmSizes.map((row, idx) => (
+                  <View key={idx} style={styles.pmSizeRow}>
+                    <TextInput
+                      value={row.size}
+                      onChangeText={(val) => updatePmSizeRow(idx, 'size', val)}
+                      placeholder="Size (e.g. M, L)"
+                      placeholderTextColor={COLORS.textLight}
+                      style={[styles.pmInput, { flex: 1, marginBottom: 0 }]}
+                    />
+                    <TextInput
+                      value={row.rate}
+                      onChangeText={(val) => updatePmSizeRow(idx, 'rate', val)}
+                      placeholder="Rate (₹)"
+                      placeholderTextColor={COLORS.textLight}
+                      keyboardType="decimal-pad"
+                      style={[styles.pmInput, { flex: 1, marginBottom: 0 }]}
+                    />
+                    <Pressable
+                      onPress={() => removePmSizeRow(idx)}
+                      hitSlop={6}
+                      accessibilityLabel="Remove size row"
+                      style={styles.pmRemoveSizeBtn}
+                    >
+                      <Ionicons name="close" size={16} color={COLORS.danger} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+
+              {/* Selected Processed Images Preview */}
+              <Text style={styles.pmLabel}>
+                SELECTED PRODUCT IMAGES ({selectedOutputItems.length})
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 10, paddingVertical: 4 }}
+              >
+                {selectedOutputItems.map((it) => (
+                  <View key={it.key} style={styles.pmImgPreviewBox}>
+                    <Image
+                      source={{ uri: it.uri }}
+                      style={styles.pmImgPreview}
+                      resizeMode="cover"
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            </ScrollView>
+
+            <View style={styles.pmFooter}>
+              <PillButton
+                label="Cancel"
+                variant="outline"
+                disabled={savingProduct}
+                onPress={() => setAddProductOpen(false)}
+                style={{ flex: 0.9 }}
+              />
+              <PillButton
+                label={savingProduct ? 'Saving…' : 'Save Product'}
+                icon="checkmark-circle-outline"
+                disabled={savingProduct}
+                onPress={submitAddToProduct}
+                style={{ flex: 1.4 }}
+              />
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <ImagePreviewModal
@@ -2073,8 +2808,18 @@ const CROP_RATIOS = [
   { id: '1:1', label: '1:1' },
 ];
 
+const MAX_CROP_SOURCE_DIM = 1800;
+
 function clampCrop(rect, min = 0.08) {
-  let { x, y, w, h } = rect;
+  let { x, y, w, h } = rect || {};
+  if (
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(w) ||
+    !Number.isFinite(h)
+  ) {
+    return { x: 0.08, y: 0.08, w: 0.84, h: 0.84 };
+  }
   w = Math.max(min, Math.min(1, w));
   h = Math.max(min, Math.min(1, h));
   x = Math.max(0, Math.min(1 - w, x));
@@ -2095,12 +2840,80 @@ function maxRectForPixelAspect(pixelAspect, imgW, imgH) {
   return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
 }
 
+async function ensureLocalCropUri(sourceUri) {
+  if (!sourceUri) return sourceUri;
+  if (Platform.OS === 'web') return sourceUri;
+  if (/^file:\/\//i.test(String(sourceUri))) return sourceUri;
+  const local = await persistLocalImage(sourceUri);
+  if (/^file:\/\//i.test(String(local))) return local;
+  return local || sourceUri;
+}
+
+function getImageSizeAsync(targetUri) {
+  return new Promise((resolve) => {
+    Image.getSize(
+      targetUri,
+      (w, h) => resolve({ w, h }),
+      () => resolve({ w: 0, h: 0 })
+    );
+  });
+}
+
+async function normalizeImageForCrop(sourceUri, fallbackW = 0, fallbackH = 0) {
+  const localUri = await ensureLocalCropUri(sourceUri);
+  const measured = await getImageSizeAsync(localUri);
+  const rawW = measured.w || fallbackW || 0;
+  const rawH = measured.h || fallbackH || 0;
+
+  if (Platform.OS === 'web') {
+    return { uri: localUri, w: rawW, h: rawH };
+  }
+
+  const actions = [];
+  if (rawW > 0 && rawH > 0 && Math.max(rawW, rawH) > MAX_CROP_SOURCE_DIM) {
+    actions.push(
+      rawW >= rawH
+        ? { resize: { width: MAX_CROP_SOURCE_DIM } }
+        : { resize: { height: MAX_CROP_SOURCE_DIM } }
+    );
+  }
+
+  let out = await ImageManipulator.manipulateAsync(localUri, actions, {
+    compress: 1,
+    format: ImageManipulator.SaveFormat.PNG,
+  });
+
+  if (
+    out.width &&
+    out.height &&
+    Math.max(out.width, out.height) > MAX_CROP_SOURCE_DIM
+  ) {
+    out = await ImageManipulator.manipulateAsync(
+      out.uri,
+      [
+        out.width >= out.height
+          ? { resize: { width: MAX_CROP_SOURCE_DIM } }
+          : { resize: { height: MAX_CROP_SOURCE_DIM } },
+      ],
+      { compress: 1, format: ImageManipulator.SaveFormat.PNG }
+    );
+  }
+
+  return {
+    uri: out.uri,
+    w: Math.max(1, Math.round(out.width || rawW || 1)),
+    h: Math.max(1, Math.round(out.height || rawH || 1)),
+  };
+}
+
 function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   const stageRef = useRef(null);
   const stagePage = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  const panStartRef = useRef(null);
+  const prepPromiseRef = useRef(null);
   const [stage, setStage] = useState({
-    w: Dimensions.get('window').width,
-    h: Math.round(Dimensions.get('window').height * 0.5),
+    w: Math.max(1, Dimensions.get('window').width),
+    h: Math.max(1, Math.round(Dimensions.get('window').height * 0.5)),
   });
   const [natural, setNatural] = useState({
     w: imageWidth || 0,
@@ -2123,29 +2936,40 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
 
   useEffect(() => {
     let alive = true;
-    Image.getSize(
-      uri,
-      (w, h) => {
-        if (alive) setNatural({ w, h, uri });
-      },
-      () => {
-        if (alive && imageWidth && imageHeight) {
-          setNatural({ w: imageWidth, h: imageHeight, uri });
+    const task = (async () => {
+      try {
+        const normalized = await normalizeImageForCrop(
+          uri,
+          imageWidth,
+          imageHeight
+        );
+        if (alive && normalized.w && normalized.h) {
+          setNatural(normalized);
+        }
+      } catch (e) {
+        const size = await getImageSizeAsync(uri);
+        if (alive) {
+          const w = size.w || imageWidth || 0;
+          const h = size.h || imageHeight || 0;
+          if (w && h) setNatural({ w, h, uri });
         }
       }
-    );
+    })();
+    prepPromiseRef.current = task;
     return () => {
       alive = false;
     };
   }, [uri, imageWidth, imageHeight]);
 
   const frame = useMemo(() => {
-    const natW = natural.w || 1;
-    const natH = natural.h || 1;
-    const s = Math.min(stage.w / natW, stage.h / natH);
-    const w = natW * s;
-    const h = natH * s;
-    return { x: (stage.w - w) / 2, y: (stage.h - h) / 2, w, h };
+    const stageW = Number.isFinite(stage.w) && stage.w > 0 ? stage.w : 1;
+    const stageH = Number.isFinite(stage.h) && stage.h > 0 ? stage.h : 1;
+    const natW = Number.isFinite(natural.w) && natural.w > 0 ? natural.w : 1;
+    const natH = Number.isFinite(natural.h) && natural.h > 0 ? natural.h : 1;
+    const s = Math.min(stageW / natW, stageH / natH);
+    const w = Math.max(1, natW * s);
+    const h = Math.max(1, natH * s);
+    return { x: (stageW - w) / 2, y: (stageH - h) / 2, w, h };
   }, [natural, stage]);
   frameRef.current = frame;
 
@@ -2196,27 +3020,85 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   };
 
   const rotate = async () => {
+    if (busy) return;
+    setBusy(true);
     try {
-      const out = await ImageManipulator.manipulateAsync(
-        natural.uri,
-        [{ rotate: 90 }],
-        { compress: 1, format: ImageManipulator.SaveFormat.PNG }
-      );
+      if (prepPromiseRef.current) {
+        await prepPromiseRef.current.catch(() => {});
+      }
+      const nat = naturalRef.current;
+      const srcUri = await ensureLocalCropUri(nat.uri);
+      const actions = [];
+      if (
+        Platform.OS !== 'web' &&
+        nat.w > 0 &&
+        nat.h > 0 &&
+        Math.max(nat.w, nat.h) > MAX_CROP_SOURCE_DIM
+      ) {
+        actions.push(
+          nat.w >= nat.h
+            ? { resize: { width: MAX_CROP_SOURCE_DIM } }
+            : { resize: { height: MAX_CROP_SOURCE_DIM } }
+        );
+      }
+      actions.push({ rotate: 90 });
+      const out = await ImageManipulator.manipulateAsync(srcUri, actions, {
+        compress: 1,
+        format: ImageManipulator.SaveFormat.PNG,
+      });
       remember(
         { x: 0, y: 0, w: 1, h: 1 },
-        { w: out.width || natural.h, h: out.height || natural.w, uri: out.uri }
+        {
+          w: Math.max(1, Math.round(out.width || nat.h || 1)),
+          h: Math.max(1, Math.round(out.height || nat.w || 1)),
+          uri: out.uri,
+        }
       );
     } catch (e) {
       Alert.alert('Rotate failed', e.message || 'Could not rotate this image.');
+    } finally {
+      setBusy(false);
     }
   };
 
-  const measureStage = () => {
+  const measureStage = (layoutEvent) => {
+    const layout = layoutEvent?.nativeEvent?.layout;
+    if (
+      layout &&
+      Number.isFinite(layout.width) &&
+      Number.isFinite(layout.height) &&
+      layout.width > 0 &&
+      layout.height > 0
+    ) {
+      setStage((prev) =>
+        prev.w === layout.width && prev.h === layout.height
+          ? prev
+          : { w: layout.width, h: layout.height }
+      );
+    }
     stageRef.current?.measureInWindow?.((x, y, w, h) => {
-      stagePage.current = { x, y, w, h };
-      if (w && h) setStage({ w, h });
+      if (
+        Number.isFinite(x) &&
+        Number.isFinite(y) &&
+        Number.isFinite(w) &&
+        Number.isFinite(h) &&
+        w > 0 &&
+        h > 0
+      ) {
+        stagePage.current = { x, y, w, h };
+        setStage((prev) => (prev.w === w && prev.h === h ? prev : { w, h }));
+      }
     });
   };
+
+  useEffect(() => {
+    const t1 = setTimeout(() => measureStage(), 80);
+    const t2 = setTimeout(() => measureStage(), 320);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
 
   const pan = useMemo(
     () =>
@@ -2224,11 +3106,36 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
         onStartShouldSetPanResponder: () => aspectRef.current !== 'full',
         onMoveShouldSetPanResponder: () => aspectRef.current !== 'full',
         onPanResponderGrant: (e) => {
-          measureStage();
           const frameNow = frameRef.current;
+          if (
+            !frameNow ||
+            !Number.isFinite(frameNow.w) ||
+            !Number.isFinite(frameNow.h) ||
+            frameNow.w <= 0 ||
+            frameNow.h <= 0
+          ) {
+            return;
+          }
+          const sp = stagePage.current;
+          const hasPage =
+            Number.isFinite(sp.x) &&
+            Number.isFinite(sp.y) &&
+            Number.isFinite(sp.w) &&
+            Number.isFinite(sp.h) &&
+            sp.w > 0 &&
+            sp.h > 0;
+          if (!hasPage) {
+            measureStage();
+          }
+          const px = hasPage
+            ? e.nativeEvent.pageX - sp.x
+            : e.nativeEvent.locationX;
+          const py = hasPage
+            ? e.nativeEvent.pageY - sp.y
+            : e.nativeEvent.locationY;
+          if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+
           const start = rectRef.current;
-          const px = e.nativeEvent.pageX - stagePage.current.x;
-          const py = e.nativeEvent.pageY - stagePage.current.y;
           const box = {
             x: frameNow.x + start.x * frameNow.w,
             y: frameNow.y + start.y * frameNow.h,
@@ -2253,16 +3160,40 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
             }
             return false;
           });
-          pan.start = { type, rect: start, px, py };
+          panStartRef.current = { type, rect: start, px, py, usedPage: hasPage };
         },
         onPanResponderMove: (e) => {
-          const start = pan.start;
+          const start = panStartRef.current;
           const frameNow = frameRef.current;
-          if (!start || !frameNow.w || !frameNow.h) return;
-          const px = e.nativeEvent.pageX - stagePage.current.x;
-          const py = e.nativeEvent.pageY - stagePage.current.y;
+          if (
+            !start ||
+            !frameNow ||
+            !Number.isFinite(frameNow.w) ||
+            !Number.isFinite(frameNow.h) ||
+            frameNow.w <= 0 ||
+            frameNow.h <= 0
+          ) {
+            return;
+          }
+          const sp = stagePage.current;
+          const hasPage =
+            start.usedPage &&
+            Number.isFinite(sp.x) &&
+            Number.isFinite(sp.y) &&
+            sp.w > 0 &&
+            sp.h > 0;
+          const px = hasPage
+            ? e.nativeEvent.pageX - sp.x
+            : e.nativeEvent.locationX;
+          const py = hasPage
+            ? e.nativeEvent.pageY - sp.y
+            : e.nativeEvent.locationY;
+          if (!Number.isFinite(px) || !Number.isFinite(py)) return;
+
           const dx = (px - start.px) / frameNow.w;
           const dy = (py - start.py) / frameNow.h;
+          if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
+
           const base = { ...start.rect };
           if (start.type === 'move') {
             setRect(clampCrop({ ...base, x: base.x + dx, y: base.y + dy }));
@@ -2300,43 +3231,92 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           setRect(clampCrop({ x, y, w, h }));
         },
         onPanResponderRelease: () => {
-          if (!pan.start) return;
+          const start = panStartRef.current;
+          if (!start) return;
           const changed =
-            JSON.stringify(pan.start.rect) !== JSON.stringify(rectRef.current);
+            JSON.stringify(start.rect) !== JSON.stringify(rectRef.current);
           if (changed) {
             setUndoStack((stack) => [
               ...stack.slice(-24),
-              { rect: pan.start.rect, natural: naturalRef.current },
+              { rect: start.rect, natural: naturalRef.current },
             ]);
             setRedoStack([]);
           }
-          pan.start = null;
+          panStartRef.current = null;
+        },
+        onPanResponderTerminate: () => {
+          panStartRef.current = null;
         },
       }),
     []
   );
 
   const save = async () => {
-    const nat = naturalRef.current;
-    const crop = rectRef.current;
-    if (!nat.w || !nat.h) {
-      Alert.alert('Crop failed', 'Image size is not ready yet.');
-      return;
-    }
+    if (busy) return;
     setBusy(true);
     try {
-      const originX = Math.max(0, Math.round(crop.x * nat.w));
-      const originY = Math.max(0, Math.round(crop.y * nat.h));
+      if (prepPromiseRef.current) {
+        await prepPromiseRef.current.catch(() => {});
+      }
+      let nat = naturalRef.current;
+      let srcUri = await ensureLocalCropUri(nat.uri);
+
+      if (!nat.w || !nat.h) {
+        const normalized = await normalizeImageForCrop(
+          srcUri,
+          imageWidth,
+          imageHeight
+        );
+        nat = normalized;
+        srcUri = normalized.uri;
+      } else if (
+        Platform.OS !== 'web' &&
+        Math.max(nat.w, nat.h) > MAX_CROP_SOURCE_DIM
+      ) {
+        const downsized = await ImageManipulator.manipulateAsync(
+          srcUri,
+          [
+            nat.w >= nat.h
+              ? { resize: { width: MAX_CROP_SOURCE_DIM } }
+              : { resize: { height: MAX_CROP_SOURCE_DIM } },
+          ],
+          { compress: 1, format: ImageManipulator.SaveFormat.PNG }
+        );
+        srcUri = downsized.uri;
+        nat = {
+          uri: downsized.uri,
+          w: Math.max(1, Math.round(downsized.width || nat.w)),
+          h: Math.max(1, Math.round(downsized.height || nat.h)),
+        };
+      }
+
+      if (!nat.w || !nat.h) {
+        Alert.alert('Crop failed', 'Image size is not ready yet.');
+        return;
+      }
+
+      const natW = Math.max(1, Math.floor(nat.w));
+      const natH = Math.max(1, Math.floor(nat.h));
+      const crop = clampCrop(rectRef.current, 0.01);
+      const originX = Math.max(
+        0,
+        Math.min(natW - 1, Math.round(crop.x * natW))
+      );
+      const originY = Math.max(
+        0,
+        Math.min(natH - 1, Math.round(crop.y * natH))
+      );
       const width = Math.max(
         1,
-        Math.min(nat.w - originX, Math.round(crop.w * nat.w))
+        Math.min(natW - originX, Math.round(crop.w * natW))
       );
       const height = Math.max(
         1,
-        Math.min(nat.h - originY, Math.round(crop.h * nat.h))
+        Math.min(natH - originY, Math.round(crop.h * natH))
       );
+
       const out = await ImageManipulator.manipulateAsync(
-        nat.uri,
+        srcUri,
         [{ crop: { originX, originY, width, height } }],
         { compress: 1, format: ImageManipulator.SaveFormat.PNG }
       );
@@ -2351,8 +3331,8 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
   const box = {
     left: frame.x + rect.x * frame.w,
     top: frame.y + rect.y * frame.h,
-    width: rect.w * frame.w,
-    height: rect.h * frame.h,
+    width: Math.max(0, rect.w * frame.w),
+    height: Math.max(0, rect.h * frame.h),
   };
 
   return (
@@ -2384,6 +3364,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
       >
         <Image
           source={{ uri: natural.uri }}
+          pointerEvents="none"
           style={{
             position: 'absolute',
             left: frame.x,
@@ -2394,6 +3375,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           resizeMode="contain"
         />
         <View
+          pointerEvents="none"
           style={{
             position: 'absolute',
             left: 0,
@@ -2404,6 +3386,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           }}
         />
         <View
+          pointerEvents="none"
           style={{
             position: 'absolute',
             left: 0,
@@ -2414,6 +3397,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           }}
         />
         <View
+          pointerEvents="none"
           style={{
             position: 'absolute',
             left: 0,
@@ -2424,6 +3408,7 @@ function CropEditor({ uri, imageWidth, imageHeight, onCancel, onDone }) {
           }}
         />
         <View
+          pointerEvents="none"
           style={{
             position: 'absolute',
             left: box.left + box.width,
@@ -3274,5 +4259,256 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     fontFamily: FONT_FAMILY,
+  },
+  pmBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 42, 29, 0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  pmModalCard: {
+    width: '100%',
+    maxWidth: 540,
+    maxHeight: '90%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: RADII.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    ...SHADOWS.floating,
+  },
+  pmHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.bg,
+  },
+  pmEyebrow: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    letterSpacing: 0.8,
+    fontFamily: FONT_FAMILY,
+  },
+  pmTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: COLORS.textDark,
+    marginTop: 2,
+    fontFamily: FONT_FAMILY,
+  },
+  pmCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pmScrollBody: {
+    padding: 18,
+    paddingBottom: 22,
+  },
+  pmErrorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: COLORS.dangerSoft,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: RADII.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  pmErrorText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.danger,
+    fontFamily: FONT_FAMILY,
+  },
+  pmLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    letterSpacing: 0.4,
+    marginTop: 10,
+    marginBottom: 5,
+    fontFamily: FONT_FAMILY,
+  },
+  pmReq: {
+    color: COLORS.danger,
+  },
+  pmInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    borderRadius: RADII.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  pmTwoCol: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pmSelectBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    borderRadius: RADII.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    gap: 8,
+  },
+  pmSelectText: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.textDark,
+    fontWeight: '600',
+    fontFamily: FONT_FAMILY,
+  },
+  pmDropdownList: {
+    marginTop: 4,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    borderRadius: RADII.sm,
+    overflow: 'hidden',
+  },
+  pmDropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  pmDropdownItemActive: {
+    backgroundColor: COLORS.primaryLight,
+  },
+  pmDropdownItemText: {
+    fontSize: 13,
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  pmDropdownEmpty: {
+    padding: 12,
+    fontSize: 12,
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  pmSegRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  pmSegBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: RADII.sm,
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pmSegBtnActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
+  },
+  pmSegText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textMuted,
+    fontFamily: FONT_FAMILY,
+  },
+  pmSegTextActive: {
+    color: COLORS.primaryText,
+    fontWeight: '700',
+  },
+  pmStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    paddingVertical: 4,
+  },
+  pmStatusCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pmStatusCheckOn: {
+    backgroundColor: COLORS.primary,
+  },
+  pmStatusCheckOff: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: COLORS.borderStrong,
+  },
+  pmStatusLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.textDark,
+    fontFamily: FONT_FAMILY,
+  },
+  pmAddSizeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primaryText,
+    fontFamily: FONT_FAMILY,
+  },
+  pmSizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pmRemoveSizeBtn: {
+    width: 34,
+    height: 38,
+    borderRadius: RADII.sm,
+    backgroundColor: COLORS.dangerSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pmImgPreviewBox: {
+    width: 68,
+    height: 76,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.surfaceMuted,
+  },
+  pmImgPreview: {
+    width: '100%',
+    height: '100%',
+  },
+  pmFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    backgroundColor: '#FFFFFF',
   },
 });

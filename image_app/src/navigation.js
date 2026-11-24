@@ -31,6 +31,7 @@ function CatalogStack() {
             title={options.title || route.name}
             subtitle={options.headerSubtitle}
             showBack={Boolean(back)}
+            onBack={options.onBack}
             activeTab="Categories"
           />
         ),
@@ -69,6 +70,7 @@ function ProcessStack() {
             title={options.title || route.name}
             subtitle={options.headerSubtitle}
             showBack={Boolean(back)}
+            onBack={options.onBack}
             activeTab="Processing"
           />
         ),

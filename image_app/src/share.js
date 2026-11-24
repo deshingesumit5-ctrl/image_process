@@ -462,6 +462,9 @@ export function extractCatalogMetadata(itemsOrProducts = []) {
   const products = normalized.map((n) => n.product).filter(Boolean);
   const collectionName = deriveCollectionName(products);
 
+  const productNames = uniq(
+    products.map((p) => txt(p.name ?? p.product_name ?? p.title)),
+  );
   const designNos = uniq(
     normalized.map((n) => n.designNumber || n.product?.design_number),
   );
@@ -478,6 +481,17 @@ export function extractCatalogMetadata(itemsOrProducts = []) {
       (Array.isArray(p.sizes) ? p.sizes : toList(p.sizes ?? p.size)).map((s) =>
         typeof s === "object" ? txt(s.size ?? s.name) : txt(s),
       ),
+    ),
+  );
+  const explicitGroups = uniq(
+    products.map((p) => txt(p.group ?? p.group_name)),
+  );
+  const categories = uniq(
+    products.map((p) => txt(p.category?.name ?? p.category_name ?? p.category)),
+  );
+  const subCategories = uniq(
+    products.map((p) =>
+      txt(p.sub_category?.name ?? p.sub_category_name ?? p.sub_category),
     ),
   );
   const groups = uniq(
@@ -502,9 +516,13 @@ export function extractCatalogMetadata(itemsOrProducts = []) {
 
   return {
     collectionName,
+    productNames,
     designNos,
     colours,
     sizes,
+    explicitGroups,
+    categories,
+    subCategories,
     groups,
     price,
     products,
@@ -512,8 +530,18 @@ export function extractCatalogMetadata(itemsOrProducts = []) {
 }
 
 export function buildCatalogCaption(itemsOrProducts = [], countOverride) {
-  const { collectionName, designNos, colours, sizes, price } =
-    extractCatalogMetadata(itemsOrProducts);
+  const {
+    collectionName,
+    productNames,
+    designNos,
+    colours,
+    sizes,
+    explicitGroups,
+    categories,
+    subCategories,
+    groups,
+    price,
+  } = extractCatalogMetadata(itemsOrProducts);
   const count =
     countOverride !== undefined && countOverride !== null
       ? countOverride
@@ -525,8 +553,22 @@ export function buildCatalogCaption(itemsOrProducts = [], countOverride) {
   ];
 
   const metaLines = [];
+  if (productNames.length) {
+    metaLines.push(`Product Name: ${productNames.join(", ")}`);
+  }
   if (designNos.length) {
     metaLines.push(`Design Nos.: ${designNos.join(", ")}`);
+  }
+  if (explicitGroups.length) {
+    metaLines.push(`Group: ${explicitGroups.join(", ")}`);
+  }
+  if (categories.length) {
+    metaLines.push(`Category: ${categories.join(", ")}`);
+  } else if (!explicitGroups.length && groups.length) {
+    metaLines.push(`Group: ${groups.join(", ")}`);
+  }
+  if (subCategories.length) {
+    metaLines.push(`Sub-Category: ${subCategories.join(", ")}`);
   }
   if (colours.length) {
     metaLines.push(`Colours: ${colours.join(", ")}`);

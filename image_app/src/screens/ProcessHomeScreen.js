@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Platform,
@@ -18,6 +19,7 @@ import { useAuth } from '../auth';
 import {
   loadLocalRecentProcessed,
   mergeRecentProcessingRows,
+  removeLocalRecentProcessed,
 } from '../recentStorage';
 import {
   buildCatalogCaption,
@@ -226,6 +228,73 @@ export default function ProcessHomeScreen({ navigation }) {
     });
   };
 
+  const executeDeleteRecent = async (item) => {
+    if (!item) return;
+    setActionBusy('delete');
+    try {
+      const hasBackendId =
+        item.id !== undefined &&
+        item.id !== null &&
+        !String(item.id).startsWith('local-') &&
+        /^\d+$/.test(String(item.id));
+      if (hasBackendId && token) {
+        try {
+          await api.deleteRecentProcess(token, item.id);
+        } catch (err) {
+          if (err?.status !== 404) {
+            throw err;
+          }
+        }
+      }
+      await removeLocalRecentProcessed(item);
+      setRecent((prev) =>
+        prev.filter((row) => {
+          if (
+            item.id !== undefined &&
+            item.id !== null &&
+            row.id !== undefined &&
+            row.id !== null
+          ) {
+            return String(row.id) !== String(item.id);
+          }
+          return row !== item;
+        })
+      );
+      setSelectedItem(null);
+      showToast('Processed image deleted.');
+    } catch (e) {
+      showToast(e?.message || 'Could not delete processed image.', 'error');
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const confirmDeleteRecent = (item) => {
+    if (!item || actionBusy) return;
+    if (Platform.OS === 'web') {
+      if (
+        typeof window !== 'undefined' &&
+        window.confirm('Do you want to delete this image?')
+      ) {
+        executeDeleteRecent(item);
+      }
+      return;
+    }
+    Alert.alert(
+      'Delete Image',
+      'Do you want to delete this image?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => executeDeleteRecent(item),
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   const webHeroGrad =
     Platform.OS === 'web'
       ? {
@@ -354,11 +423,25 @@ export default function ProcessHomeScreen({ navigation }) {
                       </Text>
                     </View>
                     <StatusPill label="Processed" />
-                    <Ionicons
-                      name="ellipsis-vertical"
-                      size={16}
-                      color={COLORS.textMuted}
-                    />
+                    <Pressable
+                      onPress={(e) => {
+                        e?.stopPropagation?.();
+                        setSelectedItem(row);
+                      }}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="More options"
+                      style={({ pressed }) => [
+                        styles.recentActionBtn,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Ionicons
+                        name="ellipsis-vertical"
+                        size={16}
+                        color={COLORS.textMuted}
+                      />
+                    </Pressable>
                   </Card>
                 </Pressable>
               );
@@ -499,6 +582,40 @@ export default function ProcessHomeScreen({ navigation }) {
                   <Text style={styles.modalActionTitle}>View in Full Screen</Text>
                   <Text style={styles.modalActionSub}>
                     Open zoomable full-screen image preview
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={COLORS.textLight}
+                />
+              </Pressable>
+
+              <Pressable
+                disabled={Boolean(actionBusy)}
+                onPress={() => confirmDeleteRecent(selectedItem)}
+                style={({ pressed }) => [
+                  styles.modalActionRow,
+                  pressed && styles.modalActionRowPressed,
+                ]}
+              >
+                <View style={[styles.modalActionIcon, { backgroundColor: COLORS.dangerSoft }]}>
+                  {actionBusy === 'delete' ? (
+                    <ActivityIndicator size="small" color={COLORS.danger} />
+                  ) : (
+                    <Ionicons
+                      name="trash-outline"
+                      size={20}
+                      color={COLORS.danger}
+                    />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalActionTitle, { color: COLORS.danger }]}>
+                    Delete Image
+                  </Text>
+                  <Text style={styles.modalActionSub}>
+                    Remove from recent processing history
                   </Text>
                 </View>
                 <Ionicons
@@ -652,6 +769,13 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     marginTop: 2,
     fontFamily: FONT_FAMILY,
+  },
+  recentActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalOverlay: {
     flex: 1,
