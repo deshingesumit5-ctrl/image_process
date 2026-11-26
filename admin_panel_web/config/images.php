@@ -13,9 +13,9 @@ return [
         'width' => (int) env('IMAGE_V_WIDTH', 1200),
         'height' => (int) env('IMAGE_V_HEIGHT', 1600),
     ],
-    'max_upload_kb' => (int) env('IMAGE_MAX_UPLOAD_KB', 8192),
+    'max_upload_kb' => (int) env('IMAGE_MAX_UPLOAD_KB', 20480),
    'allowed_mimes' => [
-    'image/jpeg', 'image/png', 'image/webp',
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp',
     'image/gif', 'image/bmp', 'image/x-ms-bmp',
     'image/avif', 'image/heic', 'image/heif', 'image/tiff',
 ],

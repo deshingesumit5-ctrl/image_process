@@ -871,3 +871,42 @@ export async function renderCatalogCardToDataUrl(items = []) {
 
   return canvas.toDataURL("image/png", 1);
 }
+
+export async function appendImageFile(form, uri, index = 0) {
+  if (Platform.OS === "web") {
+    const response = await fetch(uri);
+    if (!response.ok) throw new Error("Could not read this image for upload.");
+    const blob = await response.blob();
+    if (!blob.type || !blob.type.startsWith("image/")) {
+      throw new Error("Selected file is not a valid image.");
+    }
+    const type = blob.type;
+    const ext = type.includes("png")
+      ? "png"
+      : type.includes("webp")
+        ? "webp"
+        : "jpg";
+    form.append(
+      "images[]",
+      new File([blob], `image-${index}.${ext}`, { type }),
+    );
+    return;
+  }
+
+  const cleanUri = String(uri || "");
+  const png = cleanUri.toLowerCase().includes(".png");
+  if (/^file:\/\//i.test(cleanUri)) {
+    try {
+      const { File: FsFile } = require("expo-file-system");
+      form.append("images[]", new FsFile(cleanUri));
+      return;
+    } catch (e) {
+      console.log("[UPLOAD] File class failed, using legacy part:", e?.message);
+    }
+  }
+  form.append("images[]", {
+    uri: cleanUri,
+    name: png ? `image-${index}.png` : `image-${index}.jpg`,
+    type: png ? "image/png" : "image/jpeg",
+  });
+}

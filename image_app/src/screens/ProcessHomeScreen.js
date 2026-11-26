@@ -20,6 +20,7 @@ import {
   loadLocalRecentProcessed,
   mergeRecentProcessingRows,
   removeLocalRecentProcessed,
+  updateLocalRecentProduct,
 } from '../recentStorage';
 import {
   buildCatalogCaption,
@@ -28,6 +29,7 @@ import {
   saveImagesToGallery,
   shareCaptionAndImages,
 } from '../share';
+import AddToProductModal from '../components/AddToProductModal';
 import ImagePreviewModal from '../components/ImagePreviewModal';
 import ProductSheet from '../components/ProductSheet';
 import ToastBanner from '../components/ToastBanner';
@@ -61,6 +63,7 @@ export default function ProcessHomeScreen({ navigation }) {
   const [recent, setRecent] = useState([]);
   const [imgErrors, setImgErrors] = useState({});
   const [selectedItem, setSelectedItem] = useState(null);
+  const [productModalTarget, setProductModalTarget] = useState(null);
   const [fullScreenItem, setFullScreenItem] = useState(null);
   const [actionBusy, setActionBusy] = useState(null); // 'share' | 'download' | null
   const [toast, setToast] = useState(null);
@@ -303,9 +306,52 @@ export default function ProcessHomeScreen({ navigation }) {
         }
       : null;
 
+  const handleOpenAddToProductMaster = (item) => {
+    if (!item) return;
+    const rawUris = (
+      Array.isArray(item?.images) && item.images.length
+        ? item.images
+        : [item?.thumbnail_url]
+    )
+      .map((u) => resolveMediaUrl(u))
+      .filter(Boolean);
+    if (!rawUris.length) {
+      showToast('No processed image available to add.', 'error');
+      return;
+    }
+    setSelectedItem(null);
+    setProductModalTarget({ item, rawUris });
+  };
+
+  const handleProductAdded = async (createdProduct) => {
+    const targetItem = productModalTarget?.item;
+    if (createdProduct && typeof createdProduct === 'object' && targetItem) {
+      await updateLocalRecentProduct(targetItem, createdProduct);
+      setRecent((prev) =>
+        prev.map((row) => {
+          if (row === targetItem) {
+            return { ...row, product: createdProduct };
+          }
+          if (
+            targetItem.id !== undefined &&
+            targetItem.id !== null &&
+            row.id !== undefined &&
+            row.id !== null &&
+            String(row.id) === String(targetItem.id)
+          ) {
+            return { ...row, product: createdProduct };
+          }
+          return row;
+        })
+      );
+    }
+    showToast('Product added to Product Master.');
+  };
+
   const modalThumbUri = resolveMediaUrl(
     selectedItem?.thumbnail_url || selectedItem?.images?.[0]
   );
+  const isAddedToProductMaster = Boolean(selectedItem?.product?.id);
 
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.bg }}>
@@ -591,6 +637,63 @@ export default function ProcessHomeScreen({ navigation }) {
                 />
               </Pressable>
 
+              {isAddedToProductMaster ? (
+                <View style={styles.modalAddedRow}>
+                  <View style={[styles.modalActionIcon, { backgroundColor: '#DCFCE7' }]}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={22}
+                      color="#16A34A"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalAddedTitle}>
+                      Added to Product Master
+                    </Text>
+                    <Text style={styles.modalAddedSub} numberOfLines={1}>
+                      {selectedItem?.product?.name ||
+                        selectedItem?.product?.design_number ||
+                        'Saved in Product Master'}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color="#16A34A"
+                  />
+                </View>
+              ) : (
+                <Pressable
+                  disabled={Boolean(actionBusy)}
+                  onPress={() => handleOpenAddToProductMaster(selectedItem)}
+                  style={({ pressed }) => [
+                    styles.modalActionRow,
+                    pressed && styles.modalActionRowPressed,
+                  ]}
+                >
+                  <View style={[styles.modalActionIcon, { backgroundColor: COLORS.tileGreen }]}>
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={20}
+                      color={COLORS.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalActionTitle}>
+                      Add to Product Master
+                    </Text>
+                    <Text style={styles.modalActionSub}>
+                      Save processed image as a catalog product
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={COLORS.textLight}
+                  />
+                </Pressable>
+              )}
+
               <Pressable
                 disabled={Boolean(actionBusy)}
                 onPress={() => confirmDeleteRecent(selectedItem)}
@@ -628,6 +731,19 @@ export default function ProcessHomeScreen({ navigation }) {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Add to Product Master Modal */}
+      <AddToProductModal
+        visible={Boolean(productModalTarget)}
+        onClose={() => setProductModalTarget(null)}
+        token={token}
+        images={(productModalTarget?.rawUris || []).map((uri, idx) => ({
+          key: String(idx),
+          uri,
+        }))}
+        initialProduct={productModalTarget?.item?.product || null}
+        onSuccess={handleProductAdded}
+      />
 
       {/* Full-Screen Zoomable Image Preview */}
       <ImagePreviewModal
@@ -870,6 +986,28 @@ const styles = StyleSheet.create({
   modalActionSub: {
     fontSize: 12,
     color: COLORS.textMuted,
+    marginTop: 1,
+    fontFamily: FONT_FAMILY,
+  },
+  modalAddedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: RADII.md,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    backgroundColor: '#F0FDF4',
+  },
+  modalAddedTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#15803D',
+    fontFamily: FONT_FAMILY,
+  },
+  modalAddedSub: {
+    fontSize: 12,
+    color: '#166534',
     marginTop: 1,
     fontFamily: FONT_FAMILY,
   },

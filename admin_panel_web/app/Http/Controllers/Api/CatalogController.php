@@ -112,12 +112,14 @@ class CatalogController extends Controller
             ]);
 
             foreach ($request->input('sizes', []) as $row) {
-                if (empty($row['size'])) {
+                $size = trim((string) ($row['size'] ?? ''));
+                if ($size === '') {
                     continue;
                 }
+                $rate = $row['rate'] ?? 0;
                 $product->sizes()->create([
-                    'size' => $row['size'],
-                    'rate' => $row['rate'] ?? 0,
+                    'size' => $size,
+                    'rate' => is_numeric($rate) ? $rate : 0,
                 ]);
             }
 

@@ -23,7 +23,8 @@ class ImageProcessingService
     public function storeUpload(UploadedFile $file, string $folder = 'products/original'): string
     {
         $this->assertValidImage($file);
-        $name = Str::uuid().'.'.$file->getClientOriginalExtension();
+        $ext = $file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'png';
+        $name = Str::uuid().'.'.$ext;
 
         return $file->storeAs($folder, $name, 'public');
     }

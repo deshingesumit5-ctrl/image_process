@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { api, fetchAllProducts } from '../api';
 import { useAuth } from '../auth';
 import { COLORS, FONT_FAMILY, useResponsive } from '../theme';
@@ -21,7 +22,7 @@ export default function ProductsScreen({ route, navigation }) {
   const [selected, setSelected] = useState({});
   const { productCols, contentWidth } = useResponsive();
 
-  useEffect(() => {
+  React.useEffect(() => {
     const title = sub?.name || category?.name || (q ? `Search: ${q}` : 'Products');
     navigation.setOptions({
       title,
@@ -29,12 +30,22 @@ export default function ProductsScreen({ route, navigation }) {
     });
   }, [navigation, sub, category, q, items.length]);
 
-  useEffect(() => {
-    const params = { q: q || '' };
-    if (category) params.category_id = category.id;
-    if (sub) params.sub_category_id = sub.id;
-    fetchAllProducts(token, params).then((list) => setItems(list)).catch(() => {});
-  }, [token, category, sub, q]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      const params = { q: q || '' };
+      if (category) params.category_id = category.id;
+      if (sub) params.sub_category_id = sub.id;
+      fetchAllProducts(token, params)
+        .then((list) => {
+          if (active) setItems(list);
+        })
+        .catch(() => {});
+      return () => {
+        active = false;
+      };
+    }, [token, category, sub, q])
+  );
 
   const toggle = (id) => setSelected((s) => ({ ...s, [id]: !s[id] }));
   const selectAll = () => {

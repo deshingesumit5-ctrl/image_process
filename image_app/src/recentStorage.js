@@ -103,6 +103,91 @@ export async function removeLocalRecentProcessed(item) {
   }
 }
 
+function urlBasename(u) {
+  if (!u || typeof u !== 'string') return '';
+  const clean = u.split('?')[0].split('#')[0];
+  const parts = clean.split('/');
+  return parts[parts.length - 1] || '';
+}
+
+export async function updateLocalRecentProduct(target, product) {
+  if (!target || !product || typeof product !== 'object') return;
+  try {
+    const existing = await loadLocalRecentProcessed();
+    const targetUrls = new Set(
+      [
+        target.url,
+        target.uri,
+        target.remoteUrl,
+        target.thumbnail_url,
+        ...(Array.isArray(target.images) ? target.images : []),
+        ...(Array.isArray(target.extraUrls) ? target.extraUrls : []),
+      ]
+        .map((u) => resolveMediaUrl(u))
+        .filter(Boolean)
+    );
+    const targetNames = new Set(
+      [...targetUrls].map(urlBasename).filter((n) => n && n.length > 6)
+    );
+    const targetId =
+      target.id !== undefined && target.id !== null ? String(target.id) : null;
+    const targetTime = target.processed_at
+      ? new Date(target.processed_at).getTime()
+      : NaN;
+
+    let matched = false;
+    let next = existing.map((entry) => {
+      const entryId =
+        entry?.id !== undefined && entry?.id !== null ? String(entry.id) : null;
+      const entryUrl = resolveMediaUrl(entry?.url || entry?.uri);
+      const entryName = urlBasename(entryUrl);
+      const entryTime = entry?.processed_at
+        ? new Date(entry.processed_at).getTime()
+        : NaN;
+
+      const idMatch = Boolean(targetId && entryId && targetId === entryId);
+      const urlMatch = Boolean(entryUrl && targetUrls.has(entryUrl));
+      const nameMatch = Boolean(entryName && targetNames.has(entryName));
+      const timeMatch =
+        !Number.isNaN(targetTime) &&
+        !Number.isNaN(entryTime) &&
+        Math.abs(targetTime - entryTime) < 5000;
+
+      if (idMatch || urlMatch || nameMatch || timeMatch) {
+        matched = true;
+        return { ...entry, product };
+      }
+      return entry;
+    });
+
+    if (!matched) {
+      const fallbackUrl =
+        resolveMediaUrl(
+          target.thumbnail_url ||
+            target.url ||
+            target.uri ||
+            (Array.isArray(target.images) ? target.images[0] : null)
+        ) || null;
+      if (fallbackUrl) {
+        next = [
+          {
+            id: target.id || `local-${Date.now()}`,
+            url: fallbackUrl,
+            image_count: target.image_count || 1,
+            processed_at: target.processed_at || new Date().toISOString(),
+            product,
+          },
+          ...existing,
+        ].slice(0, MAX_RECENT_ITEMS);
+      }
+    }
+
+    await AsyncStorage.setItem(RECENT_PROCESSED_KEY, JSON.stringify(next));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 /**
  * Enrich backend ProcessingLog rows with actual processed image URLs and product metadata
  * from backend fields, local AsyncStorage history, or processed Product Master images.
